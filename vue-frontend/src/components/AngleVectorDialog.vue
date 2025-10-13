@@ -1,13 +1,31 @@
 <template>
-  <el-dialog v-model="dialogVisible" title="角度矢量设置" width="550px" @close="onCancel">
-    <el-form :model="form" label-position="top">
+  <el-dialog
+    v-model="dialogVisible"
+    title="角度矢量设置"
+    width="550px"
+    @close="onCancel"
+  >
+    <el-form
+      :model="form"
+      label-width="80px"
+      label-position="left"
+    >
       <el-row :gutter="20">
         <!-- Line 1 -->
         <el-col :span="12">
-          <el-card shadow="never" header="Line 1">
-            <el-form-item v-for="(_, key) in form.line1" :label="key.toUpperCase()" :key="key">
+          <el-card
+            shadow="never"
+            header="Line 1"
+          >
+            <el-form-item
+              v-for="(_, key) in form.line1"
+              :key="key"
+              :label="key.toUpperCase()"
+            >
               <el-input v-model="form.line1[key]">
-                <template #append>°</template>
+                <template #append>
+                  °
+                </template>
               </el-input>
             </el-form-item>
           </el-card>
@@ -15,10 +33,19 @@
 
         <!-- Line 2 -->
         <el-col :span="12">
-          <el-card shadow="never" header="Line 2">
-            <el-form-item v-for="(_, key) in form.line2" :label="key.toUpperCase()" :key="key">
+          <el-card
+            shadow="never"
+            header="Line 2"
+          >
+            <el-form-item
+              v-for="(_, key) in form.line2"
+              :key="key"
+              :label="key.toUpperCase()"
+            >
               <el-input v-model="form.line2[key]">
-                <template #append>°</template>
+                <template #append>
+                  °
+                </template>
               </el-input>
             </el-form-item>
           </el-card>
@@ -26,11 +53,16 @@
       </el-row>
 
       <!-- Delta Angle -->
-      <el-row justify="center" style="margin-top: 20px;">
+      <el-row
+        justify="center"
+        style="margin-top: 20px;"
+      >
         <el-col :span="12">
           <el-form-item label="▲α">
             <el-input v-model="form.deltaAlpha">
-              <template #append>°</template>
+              <template #append>
+                °
+              </template>
             </el-input>
           </el-form-item>
         </el-col>
@@ -39,10 +71,19 @@
 
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click="onFetch">获取角度</el-button>
-        <div class="spacer"></div>
-        <el-button type="primary" @click="onApply">应用</el-button>
-        <el-button @click="onCancel">退出</el-button>
+        <el-button @click="onFetch">
+          获取角度
+        </el-button>
+        <div class="spacer" />
+        <el-button @click="onCancel">
+          退出
+        </el-button>
+        <el-button
+          type="primary"
+          @click="onApply"
+        >
+          应用
+        </el-button>
       </span>
     </template>
   </el-dialog>

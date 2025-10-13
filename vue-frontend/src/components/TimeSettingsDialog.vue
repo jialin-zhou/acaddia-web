@@ -1,9 +1,18 @@
 <template>
-  <el-dialog v-model="dialogVisible" title="时间设置" width="450px" @close="onCancel">
+  <el-dialog
+    v-model="dialogVisible"
+    title="时间设置"
+    width="450px"
+    @close="onCancel"
+  >
     <div class="time-display">
       <p>当前设备时间: {{ formattedDeviceTime }}</p>
     </div>
-    <el-form :model="form" label-width="80px" class="time-form">
+    <el-form
+      :model="form"
+      label-width="80px"
+      class="time-form"
+    >
       <el-form-item label="设置日期">
         <el-date-picker
           v-model="form.date"
@@ -25,10 +34,19 @@
 
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click="onFetchTime">获取时间</el-button>
-        <div class="spacer"></div>
-        <el-button @click="onCancel">取消</el-button>
-        <el-button type="primary" @click="onSetTime">设置时间</el-button>
+        <el-button @click="onFetchTime">
+          获取时间
+        </el-button>
+        <div class="spacer" />
+        <el-button @click="onCancel">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="onSetTime"
+        >
+          设置时间
+        </el-button>
       </span>
     </template>
   </el-dialog>
@@ -57,6 +75,13 @@ export default {
         return this.deviceTime.toLocaleString();
     }
   },
+  watch: {
+      visible(val) {
+          if(val) {
+              this.setCurrentTime();
+          }
+      }
+  },
   methods: {
     setCurrentTime() {
         const now = new Date();
@@ -83,17 +108,8 @@ export default {
     },
     onFetchTime() {
       this.$emit('fetchTime');
-      // You would typically update `deviceTime` based on a response from the parent.
-      // For now, we'll just log it.
       this.$message.info('已发送获取时间命令');
     },
-  },
-  watch: {
-      visible(val) {
-          if(val) {
-              this.setCurrentTime();
-          }
-      }
   }
 };
 </script>
@@ -116,7 +132,8 @@ export default {
 .spacer {
   flex-grow: 1;
 }
-.el-date-picker, .el-time-picker {
+.el-date-picker,
+.el-time-picker {
     width: 100%;
 }
 </style>

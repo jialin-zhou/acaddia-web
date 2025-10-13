@@ -5,8 +5,11 @@ module.exports = defineConfig({
 
   // Configuration for the development server
   devServer: {
+    // Assign a specific port to avoid conflicts with the backend
+    port: 8081,
+
     // When running `npm run serve`, all API and WebSocket requests will be proxied
-    // from the frontend server (e.g., localhost:8081) to the backend Spring Boot server (localhost:8080).
+    // from the frontend server (localhost:8081) to the backend Spring Boot server (localhost:8080).
     proxy: {
       // Proxy WebSocket connection requests
       '/ws': {

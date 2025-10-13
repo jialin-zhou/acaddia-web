@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="dialogVisible" title="通道校准" width="800px" @close="onCancel">
+  <div class="ad-adjust-view">
     <el-row :gutter="20">
       <!-- Left Navigation -->
       <el-col :span="4">
@@ -56,62 +56,38 @@
                 </el-form-item>
               </el-col>
             </el-row>
-            <!-- Additional DC calibration inputs can be added here -->
           </el-card>
         </div>
       </el-col>
     </el-row>
 
-    <template #footer>
-      <span class="dialog-footer">
-        <el-button @click="onCancel">取消</el-button>
-        <el-button type="primary" @click="onCalibrate">执行校准</el-button>
-      </span>
-    </template>
-  </el-dialog>
+    <div class="view-footer">
+      <el-button type="primary" @click="onCalibrate">执行校准</el-button>
+    </div>
+  </div>
 </template>
 
 <script>
 export default {
-  name: 'AdAdjustDialog',
-  props: { visible: { type: Boolean, default: false } },
-  emits: ['update:visible', 'calibrate'],
+  name: 'AdAdjustView',
+  props: {
+    stompClient: { type: Object, default: null },
+  },
   data() {
     return {
-      mode: 'line1', // line1, line2, dc
+      mode: 'line1',
       acChannels: [],
       dcZeroDriftSelection: 1,
       dcFactorSelection: 1,
     };
   },
-  computed: {
-    dialogVisible: {
-      get() { return this.visible; },
-      set(value) { this.$emit('update:visible', value); }
-    }
+  created() {
+    this.initializeState();
   },
   methods: {
     initializeState() {
-      const createAcChannel = (name, sourceValue) => ({
-        name,
-        sourceValue,
-        correctionFactor: '0H',
-        originalFactor: '0H',
-        calculatedValue: '0H',
-        idealValue: '4000H',
-        calibrated: false,
-      });
-      this.acChannels = [
-        createAcChannel('Ua(V)', '57.74'),
-        createAcChannel('Ub(V)', '57.74'),
-        createAcChannel('Uc(V)', '57.74'),
-        createAcChannel('Ia(A)', '1'),
-        createAcChannel('Ib(A)', '1'),
-        createAcChannel('Ic(A)', '1'),
-      ];
-    },
-    onCancel() {
-      this.dialogVisible = false;
+      const createAcChannel = (name, sourceValue) => ({ name, sourceValue, correctionFactor: '0H', originalFactor: '0H', calculatedValue: '0H', idealValue: '4000H', calibrated: false });
+      this.acChannels = [ createAcChannel('Ua(V)', '57.74'), createAcChannel('Ub(V)', '57.74'), createAcChannel('Uc(V)', '57.74'), createAcChannel('Ia(A)', '1'), createAcChannel('Ib(A)', '1'), createAcChannel('Ic(A)', '1') ];
     },
     onCalibrate() {
       const payload = {
@@ -120,38 +96,22 @@ export default {
         dcZeroDriftSelection: this.mode === 'dc' ? this.dcZeroDriftSelection : undefined,
         dcFactorSelection: this.mode === 'dc' ? this.dcFactorSelection : undefined,
       };
-      this.$emit('calibrate', payload);
-      this.$message.info('校准命令已发送');
-    }
-  },
-  watch: {
-    visible(newValue) {
-      if (newValue) {
-        this.initializeState();
+      if (this.stompClient && this.stompClient.connected) {
+        this.stompClient.send('/app/send-command', JSON.stringify({ type: 'ad-adjust-calibrate', payload }), {});
+        this.$message.info('校准命令已发送');
+      } else {
+        this.$message.error('发送失败：未连接到服务器');
       }
     }
-  },
-  created() {
-    this.initializeState();
   }
 };
 </script>
 
 <style scoped>
-.el-radio-group {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-}
-.el-radio-button {
-  margin-bottom: 10px;
-}
-.el-radio-button:deep(.el-radio-button__inner) {
-  width: 100%;
-  border-radius: 4px !important;
-  border: 1px solid #dcdfe6;
-}
-.el-select {
-    width: 100%;
-}
+.ad-adjust-view { padding: 20px; background: #fff; border-radius: 4px; }
+.view-footer { display: flex; justify-content: flex-end; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #f0f2f5; }
+.el-radio-group { display: flex; flex-direction: column; align-items: stretch; }
+.el-radio-button { margin-bottom: 10px; }
+.el-radio-button:deep(.el-radio-button__inner) { width: 100%; border-radius: 4px !important; border: 1px solid #dcdfe6; }
+.el-select { width: 100%; }
 </style>
