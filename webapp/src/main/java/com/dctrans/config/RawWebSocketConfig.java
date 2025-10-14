@@ -16,8 +16,7 @@ public class RawWebSocketConfig implements WebSocketConfigurer {
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        // Registers the raw WebSocket handler for the serial port service
-        // on a dedicated path to avoid conflicts with the STOMP endpoint.
-        registry.addHandler(serialPortWebSocketHandler, "/serial-port").setAllowedOrigins("*");
+        // Use allowedOriginPatterns instead of allowedOrigins to support credentials with a wildcard
+        registry.addHandler(serialPortWebSocketHandler, "/serial-port").setAllowedOriginPatterns("*");
     }
 }

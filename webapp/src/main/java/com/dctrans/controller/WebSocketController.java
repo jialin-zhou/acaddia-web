@@ -34,11 +34,22 @@ public class WebSocketController {
                 deviceInteractionService.fetchAndSendAvailablePorts();
                 break;
 
+            // --- Time Commands ---
+            case "time-set":
+                if (command.getPayload() != null) {
+                    // Assuming the payload for time-set is just the string value.
+                    deviceInteractionService.setTime(command.getPayload().toString());
+                }
+                break;
+
+            case "time-fetch":
+                deviceInteractionService.fetchTime();
+                break;
+
             // --- Settings and Data Commands (Placeholders) ---
             case "tqcs-apply":
             case "ad-params-apply":
             case "ad-adjust-calibrate":
-            case "time-set":
             case "tqml-execute":
             case "angle-apply":
             case "dim-confirm":
@@ -48,8 +59,6 @@ public class WebSocketController {
 
             case "tqcs-fetch":
             case "ad-params-fetch":
-            case "time-fetch":
-            case "tqml-fetch":
             case "message-fetch":
             case "angle-fetch":
                 System.out.println("Handling fetch request for: " + command.getType());
