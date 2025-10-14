@@ -9,47 +9,20 @@
       <!-- Settings Buttons -->
       <div class="header-actions">
         <el-button-group>
-          <el-button
-            text
-            @click="openDialog('com')"
-          >
-            串口设置
-          </el-button>
-          <el-button
-            text
-            @click="openDialog('time')"
-          >
-            时间设置
-          </el-button>
-          <el-button
-            text
-            @click="openDialog('angle')"
-          >
-            角度矢量
-          </el-button>
-          <el-button
-            text
-            @click="openDialog('dim')"
-          >
-            标幺设置
-          </el-button>
+          <el-button text @click="openDialog('com')">串口设置</el-button>
+          <el-button text @click="openDialog('time')">时间设置</el-button>
+          <el-button text @click="openDialog('angle')">角度矢量</el-button>
+          <el-button text @click="openDialog('dim')">标幺设置</el-button>
         </el-button-group>
       </div>
 
       <div class="spacer" />
 
       <div class="connection-status">
-        <el-tag
-          :type="isSerialConnected ? 'success' : 'danger'"
-          size="large"
-        >
-          串口: {{ serialStatus }}
+        <el-tag :type="isSerialConnected ? 'success' : 'danger'" size="large">
+          {{ serialStatus }}
         </el-tag>
-        <el-tag
-          :type="isWsConnected ? 'success' : 'info'"
-          size="large"
-          style="margin-left: 10px;"
-        >
+        <el-tag :type="isWsConnected ? 'success' : 'info'" size="large" style="margin-left: 10px;">
           服务器: {{ wsStatus }}
         </el-tag>
       </div>
@@ -57,33 +30,14 @@
 
     <el-container>
       <!-- Side Menu -->
-      <el-aside
-        width="220px"
-        class="main-aside"
-      >
-        <el-menu
-          :default-active="activeView"
-          class="main-menu"
-          @select="handleMenuSelect"
-        >
-          <el-menu-item index="DataParsing">
-            数据解析
-          </el-menu-item>
-          <el-menu-item index="Tqcs">
-            同期参数
-          </el-menu-item>
-          <el-menu-item index="AdParams">
-            AD参数
-          </el-menu-item>
-          <el-menu-item index="AdAdjust">
-            通道校准
-          </el-menu-item>
-          <el-menu-item index="Tqml">
-            同期命令
-          </el-menu-item>
-          <el-menu-item index="Message">
-            通信报文
-          </el-menu-item>
+      <el-aside width="220px" class="main-aside">
+        <el-menu :default-active="activeView" class="main-menu" @select="handleMenuSelect">
+          <el-menu-item index="DataParsing">数据解析</el-menu-item>
+          <el-menu-item index="Tqcs">同期参数</el-menu-item>
+          <el-menu-item index="AdParams">AD参数</el-menu-item>
+          <el-menu-item index="AdAdjust">通道校准</el-menu-item>
+          <el-menu-item index="Tqml">同期命令</el-menu-item>
+          <el-menu-item index="Message">通信报文</el-menu-item>
         </el-menu>
       </el-aside>
 
@@ -92,6 +46,8 @@
         <component
           :is="activeViewComponent"
           :stomp-client="stompClient"
+          :serial-data-in="receivedSerialData"
+          @send-serial-data="handleSendSerialData"
         />
       </el-main>
     </el-container>
@@ -100,10 +56,9 @@
     <com-settings-dialog
       v-model:visible="dialogVisible.com"
       :is-connected="isSerialConnected"
-      :available-ports="availablePorts"
       @connect="handleSerialConnect"
       @disconnect="handleSerialDisconnect"
-      @fetch-ports="handleFetchPorts"
+      @data-received="handleSerialDataReceived"
     />
     <time-settings-dialog
       v-model:visible="dialogVisible.time"
@@ -153,10 +108,10 @@ export default {
       isWsConnected: false,
       isSerialConnected: false,
       stompClient: null,
-      dialogVisible: {
-        com: false, time: false, angle: false, dim: false,
-      },
-      availablePorts: [],
+      dialogVisible: { com: false, time: false, angle: false, dim: false },
+      serialPort: null,
+      serialPortName: '',
+      receivedSerialData: null, // Prop to pass incoming data to child view
     };
   },
   computed: {
@@ -164,23 +119,28 @@ export default {
       return `${this.activeView}View`;
     },
     wsStatus() { return this.isWsConnected ? '已连接' : '已断开'; },
-    serialStatus() { return this.isSerialConnected ? '已连接' : '已断开'; },
+    serialStatus() {
+      if (this.isSerialConnected && this.serialPortName) {
+        return `${this.serialPortName}: 已连接`;
+      }
+      return '串口: 已断开';
+    },
   },
   created() {
     this.connectWs();
   },
   methods: {
-    handleMenuSelect(index) {
-      this.activeView = index;
-    },
+    handleMenuSelect(index) { this.activeView = index; },
     log(content, type = 'info') { console.log(`[${type}] ${content}`); },
     connectWs() {
       this.log('开始连接到服务器...');
-      const socket = new SockJS('/ws');
+      // Use the full URL to bypass the dev server proxy and avoid handshake errors.
+      const socket = new SockJS('http://localhost:8080/ws');
       this.stompClient = Stomp.over(socket);
       this.stompClient.connect({}, frame => {
         this.isWsConnected = true;
         this.log(`服务器连接成功: ${frame}`, 'success');
+        // Subscribe to any non-serial topics you need here
         this.stompClient.subscribe('/topic/status', tick => this.handleBackendMessage(tick.body));
       }, error => {
         this.isWsConnected = false;
@@ -189,24 +149,14 @@ export default {
       });
     },
     handleBackendMessage(message) {
+      // This method handles messages from the backend server.
       try {
         const msg = JSON.parse(message);
-        switch (msg.type) {
-          case 'serial-status':
-            this.isSerialConnected = msg.payload.connected;
-            this.log(`串口状态更新: ${this.isSerialConnected ? '已连接' : '已断开'}`, 'success');
-            if (this.isSerialConnected) this.dialogVisible.com = false;
-            break;
-          case 'available-ports':
-            this.availablePorts = msg.payload;
-            this.log(`获取可用串口列表: ${this.availablePorts.join(', ')}`, 'info');
-            break;
-          default:
-            // This is now less important as logs are handled in DataParsingView
+        // Example: handle other message types from backend
+        if (msg.type === 'some-other-status') {
+          // ...
         }
-      } catch (e) {
-        // console.error("Failed to parse backend message", e);
-      }
+      } catch (e) { /* Ignore parsing errors */ }
     },
     sendCommand(command) {
       if (this.stompClient && this.stompClient.connected) {
@@ -218,15 +168,44 @@ export default {
     openDialog(dialogName) {
       if (Object.prototype.hasOwnProperty.call(this.dialogVisible, dialogName)) {
         this.dialogVisible[dialogName] = true;
-        if (dialogName === 'com') this.handleFetchPorts();
       } else {
         this.$message.error(`未知的对话框: ${dialogName}`);
       }
     },
-    // Dialog Handlers
-    handleSerialConnect(settings) { this.sendCommand({ type: 'serial-connect', payload: settings }); },
-    handleSerialDisconnect() { this.sendCommand({ type: 'serial-disconnect' }); },
-    handleFetchPorts() { this.sendCommand({ type: 'serial-fetch-ports' }); },
+
+    // --- Web Serial API Handlers ---
+    handleSerialConnect(connection) {
+      this.isSerialConnected = true;
+      this.serialPort = connection.port;
+      this.serialPortName = connection.portName;
+      this.dialogVisible.com = false; // Close dialog on successful connection
+    },
+    handleSerialDisconnect() {
+      this.isSerialConnected = false;
+      this.serialPort = null;
+      this.serialPortName = '';
+    },
+    handleSerialDataReceived(data) {
+      // This just passes the data down to the active view.
+      this.receivedSerialData = data;
+    },
+    async handleSendSerialData(data) {
+      if (!this.serialPort || !this.serialPort.writable) {
+        this.$message.error('发送失败：串口未连接或不可写。');
+        return;
+      }
+      const writer = this.serialPort.writable.getWriter();
+      try {
+        await writer.write(data);
+      } catch (error) {
+        console.error('Error writing to serial port:', error);
+        this.$message.error(`发送数据失败: ${error.message}`);
+      } finally {
+        writer.releaseLock();
+      }
+    },
+
+    // --- STOMP-based Dialog Handlers (for other dialogs) ---
     handleTimeSet(newTime) { this.sendCommand({ type: 'time-set', payload: newTime }); },
     handleTimeFetch() { this.sendCommand({ type: 'time-fetch' }); },
     handleAngleFetch() { this.sendCommand({ type: 'angle-fetch' }); },

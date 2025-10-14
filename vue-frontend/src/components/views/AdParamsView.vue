@@ -1,22 +1,44 @@
 <template>
   <div class="ad-params-view">
-    <el-form :model="form" label-position="top">
+    <el-form :model="form" label-width="80px">
       <el-tabs v-model="activeTab">
         <!-- AC Scaling Factors Tab -->
         <el-tab-pane label="AC 比例系数" name="acScaling">
           <el-row :gutter="20">
+            <!-- Line 1 Card -->
             <el-col :span="12">
-              <el-card shadow="never" header="Line 1 Channels">
-                <el-form-item v-for="chan in ['U1a', 'U1b', 'U1c', 'I1a', 'I1b', 'I1c']" :label="chan" :key="chan">
-                  <el-input v-model="form.acScaling[chan]"></el-input>
-                </el-form-item>
+              <el-card shadow="never">
+                <template #header>Line 1 Channels</template>
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item v-for="chan in ['U1a', 'U1b', 'U1c']" :label="chan" :key="chan">
+                      <el-input v-model="form.acScaling[chan]"></el-input>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item v-for="chan in ['I1a', 'I1b', 'I1c']" :label="chan" :key="chan">
+                      <el-input v-model="form.acScaling[chan]"></el-input>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
               </el-card>
             </el-col>
+            <!-- Line 2 Card -->
             <el-col :span="12">
-              <el-card shadow="never" header="Line 2 Channels">
-                <el-form-item v-for="chan in ['U2a', 'U2b', 'U2c', 'I2a', 'I2b', 'I2c']" :label="chan" :key="chan">
-                  <el-input v-model="form.acScaling[chan]"></el-input>
-                </el-form-item>
+              <el-card shadow="never">
+                <template #header>Line 2 Channels</template>
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item v-for="chan in ['U2a', 'U2b', 'U2c']" :label="chan" :key="chan">
+                      <el-input v-model="form.acScaling[chan]"></el-input>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item v-for="chan in ['I2a', 'I2b', 'I2c']" :label="chan" :key="chan">
+                      <el-input v-model="form.acScaling[chan]"></el-input>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
               </el-card>
             </el-col>
           </el-row>
@@ -69,7 +91,5 @@ export default {
 .ad-params-view { padding: 20px; background: #fff; border-radius: 4px; }
 .view-footer { display: flex; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #f0f2f5; }
 .spacer { flex-grow: 1; }
-.dc-card { margin-bottom: 15px; }
-.top-margin-card { margin-top: 20px; }
-.el-select { width: 100%; }
+.el-card { height: 100%; }
 </style>

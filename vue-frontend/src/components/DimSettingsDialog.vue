@@ -120,8 +120,14 @@ export default {
 .vertical-radio-group {
   display: flex;
   flex-direction: column;
-  align-items: stretch; /* Make radios take full width */
   gap: 10px;
+}
+
+/* This ensures that all bordered radio buttons stretch to the full width, making them uniform. */
+.vertical-radio-group :deep(.el-radio) {
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .dialog-footer {

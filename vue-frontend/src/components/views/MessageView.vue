@@ -2,7 +2,7 @@
   <div class="message-view">
     <el-row :gutter="20">
       <!-- Left Column -->
-      <el-col :span="8">
+      <el-col :span="12">
         <el-card class="box-card" header="控制字">
           <el-form :model="message.control" label-position="left" label-width="100px" disabled>
             <el-form-item v-for="(val, key) in message.control" :label="key" :key="key">
@@ -19,8 +19,8 @@
         </el-card>
       </el-col>
 
-      <!-- Middle Column -->
-      <el-col :span="8">
+      <!-- Right Column -->
+      <el-col :span="12">
         <el-card class="box-card" header="状态字">
           <el-form :model="message.status" label-position="left" label-width="100px" disabled>
             <el-form-item label="Status Word 1">
@@ -34,11 +34,7 @@
             <el-checkbox v-for="(val, key) in message.status.flags" :model-value="val" :label="key" :key="key" disabled />
           </div>
         </el-card>
-      </el-col>
-
-      <!-- Right Column -->
-      <el-col :span="8">
-        <el-card class="box-card" header="通道数据">
+        <el-card class="box-card" header="通道数据" style="margin-top: 20px;">
           <div class="display-mode-toggle">
              <el-radio-group v-model="displayMode">
                 <el-radio-button label="HEX">HEX</el-radio-button>
@@ -94,7 +90,7 @@ export default {
 
 <style scoped>
 .message-view { padding: 20px; background: #fff; border-radius: 4px; }
-.box-card { height: 100%; }
+.box-card { height: auto; }
 .status-flags { margin-top: 15px; display: flex; flex-direction: column; gap: 10px; }
 .display-mode-toggle { margin-bottom: 15px; text-align: center; }
 .view-footer { display: flex; justify-content: flex-end; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #f0f2f5; }
