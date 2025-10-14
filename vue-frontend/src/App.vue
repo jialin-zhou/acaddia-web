@@ -14,6 +14,7 @@
           <el-button text @click="openDialog('angle')">角度矢量</el-button>
           <el-button text @click="openDialog('dim')">标幺设置</el-button>
         </el-button-group>
+        <el-button text type="primary" @click="handleReadStatus" style="margin-left: 10px;">读取状态</el-button>
       </div>
 
       <div class="spacer" />
@@ -32,7 +33,7 @@
       <!-- Side Menu -->
       <el-aside width="220px" class="main-aside">
         <el-menu :default-active="activeView" class="main-menu" @select="handleMenuSelect">
-          <el-menu-item index="DataParsing">数据解析</el-menu-item>
+          <el-menu-item index="DataParsing">串口数据收发</el-menu-item>
           <el-menu-item index="Tqcs">同期参数</el-menu-item>
           <el-menu-item index="AdParams">AD参数</el-menu-item>
           <el-menu-item index="AdAdjust">通道校准</el-menu-item>
@@ -81,6 +82,7 @@
 <script>
 import SockJS from 'sockjs-client';
 import Stomp from 'webstomp-client';
+import { pack, Unpacker } from './utils/acadia-protocol.js'; // Import Unpacker
 
 // Dialog Components
 import ComSettingsDialog from './components/ComSettingsDialog.vue';
@@ -104,14 +106,16 @@ export default {
   },
   data() {
     return {
-      activeView: 'DataParsing',
+      activeView: 'Message',
       isWsConnected: false,
       isSerialConnected: false,
       stompClient: null,
       dialogVisible: { com: false, time: false, angle: false, dim: false },
       serialPort: null,
       serialPortName: '',
-      receivedSerialData: null, // Prop to pass incoming data to child view
+      receivedSerialData: null,
+      msgCounter: 0, // Counter for F1 field generation, mimics Msg_cntr
+      serialUnpacker: new Unpacker(), // Create an instance of the unpacker
     };
   },
   computed: {
@@ -134,13 +138,11 @@ export default {
     log(content, type = 'info') { console.log(`[${type}] ${content}`); },
     connectWs() {
       this.log('开始连接到服务器...');
-      // Use the full URL to bypass the dev server proxy and avoid handshake errors.
       const socket = new SockJS('http://localhost:8080/ws');
       this.stompClient = Stomp.over(socket);
       this.stompClient.connect({}, frame => {
         this.isWsConnected = true;
         this.log(`服务器连接成功: ${frame}`, 'success');
-        // Subscribe to any non-serial topics you need here
         this.stompClient.subscribe('/topic/status', tick => this.handleBackendMessage(tick.body));
       }, error => {
         this.isWsConnected = false;
@@ -149,14 +151,10 @@ export default {
       });
     },
     handleBackendMessage(message) {
-      // This method handles messages from the backend server.
       try {
         const msg = JSON.parse(message);
-        // Example: handle other message types from backend
-        if (msg.type === 'some-other-status') {
-          // ...
-        }
-      } catch (e) { /* Ignore parsing errors */ }
+        if (msg.type === 'some-other-status') { /* ... */ }
+      } catch (e) { /* Ignore */ }
     },
     sendCommand(command) {
       if (this.stompClient && this.stompClient.connected) {
@@ -173,12 +171,39 @@ export default {
       }
     },
 
+    // --- Protocol-based Write Operation ---
+    handleReadStatus() {
+      if (!this.isSerialConnected) {
+        this.$message.error('请先连接串口');
+        return;
+      }
+
+      // Generate F1 field based on the message counter, mimicking C++ logic
+      const f1 = (this.msgCounter << 5) | 0x09;
+
+      // Use the correct, discovered function codes
+      const command = pack({
+        stationAddr: 0x01,       // Example station address
+        funcCode1: f1,           // Generated F1
+        funcCode2: 0x80,         // Correct F2 for this command
+        telegramNr: 37,          // Correct Telegram Number for reading main AD data
+        payload: new Uint8Array(), // No payload for this command
+      });
+
+      this.handleSendSerialData(command);
+      this.$message.info('读取状态命令(NR=37)已发送');
+
+      // Increment the message counter for the next command, ensuring it stays within 3 bits (0-7)
+      this.msgCounter = (this.msgCounter + 1) & 0x07;
+    },
+
     // --- Web Serial API Handlers ---
     handleSerialConnect(connection) {
       this.isSerialConnected = true;
       this.serialPort = connection.port;
       this.serialPortName = connection.portName;
-      this.dialogVisible.com = false; // Close dialog on successful connection
+      this.serialUnpacker = new Unpacker(); // Reset unpacker on new connection
+      this.dialogVisible.com = false;
     },
     handleSerialDisconnect() {
       this.isSerialConnected = false;
@@ -186,8 +211,11 @@ export default {
       this.serialPortName = '';
     },
     handleSerialDataReceived(data) {
-      // This just passes the data down to the active view.
-      this.receivedSerialData = data;
+      this.serialUnpacker.addData(data);
+      const frames = this.serialUnpacker.unpack();
+      if (frames.length > 0) {
+        this.receivedSerialData = frames;
+      }
     },
     async handleSendSerialData(data) {
       if (!this.serialPort || !this.serialPort.writable) {
@@ -205,7 +233,7 @@ export default {
       }
     },
 
-    // --- STOMP-based Dialog Handlers (for other dialogs) ---
+    // --- STOMP-based Dialog Handlers ---
     handleTimeSet(newTime) { this.sendCommand({ type: 'time-set', payload: newTime }); },
     handleTimeFetch() { this.sendCommand({ type: 'time-fetch' }); },
     handleAngleFetch() { this.sendCommand({ type: 'angle-fetch' }); },
