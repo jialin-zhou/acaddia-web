@@ -33,6 +33,7 @@
       <!-- Side Menu -->
       <el-aside width="220px" class="main-aside">
         <el-menu :default-active="activeView" class="main-menu" @select="handleMenuSelect">
+          <el-menu-item index="Main">主界面</el-menu-item>
           <el-menu-item index="DataParsing">串口数据收发</el-menu-item>
           <el-menu-item index="Tqcs">同期参数</el-menu-item>
           <el-menu-item index="AdParams">AD参数</el-menu-item>
@@ -91,6 +92,7 @@ import AngleVectorDialog from './components/AngleVectorDialog.vue';
 import DimSettingsDialog from './components/DimSettingsDialog.vue';
 
 // View Components
+import MainView from './components/views/MainView.vue';
 import DataParsingView from './components/views/DataParsingView.vue';
 import TqcsView from './components/views/TqcsView.vue';
 import AdParamsView from './components/views/AdParamsView.vue';
@@ -102,11 +104,11 @@ export default {
   name: 'App',
   components: {
     ComSettingsDialog, TimeSettingsDialog, AngleVectorDialog, DimSettingsDialog,
-    DataParsingView, TqcsView, AdParamsView, AdAdjustView, TqmlView, MessageView,
+    MainView, DataParsingView, TqcsView, AdParamsView, AdAdjustView, TqmlView, MessageView,
   },
   data() {
     return {
-      activeView: 'Message',
+      activeView: 'Main',
       isWsConnected: false,
       isSerialConnected: false,
       stompClient: null,

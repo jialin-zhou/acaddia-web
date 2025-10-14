@@ -1,26 +1,25 @@
 <template>
   <div class="message-view">
     <el-row :gutter="20">
-      <!-- Left Column -->
-      <el-col :span="12">
-        <el-card class="box-card" header="控制字">
+      <!-- Column 1: Rated Parameters & Control Word -->
+      <el-col :span="8">
+        <el-card class="box-card" header="额定参数 & 控制字">
+          <el-form :model="message.rated" label-position="left" label-width="100px" disabled>
+            <el-form-item v-for="(val, key) in message.rated" :label="key" :key="key">
+              <el-input :model-value="val" />
+            </el-form-item>
+          </el-form>
+          <el-divider />
           <el-form :model="message.control" label-position="left" label-width="100px" disabled>
             <el-form-item v-for="(val, key) in message.control" :label="key" :key="key">
               <el-input :model-value="val" />
             </el-form-item>
           </el-form>
         </el-card>
-        <el-card class="box-card" header="额定参数" style="margin-top: 20px;">
-          <el-form :model="message.rated" label-position="left" label-width="100px" disabled>
-            <el-form-item v-for="(val, key) in message.rated" :label="key" :key="key">
-              <el-input :model-value="val" />
-            </el-form-item>
-          </el-form>
-        </el-card>
       </el-col>
 
-      <!-- Right Column -->
-      <el-col :span="12">
+      <!-- Column 2: Status Word -->
+      <el-col :span="8">
         <el-card class="box-card" header="状态字">
           <el-form :model="message.status" label-position="left" label-width="100px" disabled>
             <el-form-item label="Status Word 1">
@@ -34,14 +33,18 @@
             <el-checkbox v-for="(val, key) in message.status.flags" :model-value="val" :label="key" :key="key" disabled />
           </div>
         </el-card>
-        <el-card class="box-card" header="通道数据" style="margin-top: 20px;">
+      </el-col>
+
+      <!-- Column 3: Channel Data -->
+      <el-col :span="8">
+        <el-card class="box-card" header="通道数据">
           <div class="display-mode-toggle">
              <el-radio-group v-model="displayMode">
                 <el-radio-button label="HEX">HEX</el-radio-button>
                 <el-radio-button label="DEC">DEC</el-radio-button>
               </el-radio-group>
           </div>
-          <el-table :data="message.channelData" border size="small" height="350">
+          <el-table :data="message.channelData" border size="small" height="290">
             <el-table-column type="index" label="Ch" width="50" />
             <el-table-column label="Value 1">
                 <template #default="scope">{{ formatValue(scope.row.val1) }}</template>
@@ -50,12 +53,12 @@
                 <template #default="scope">{{ formatValue(scope.row.val2) }}</template>
             </el-table-column>
           </el-table>
+          <div class="card-footer">
+            <el-button type="primary" @click="onFetch">获取</el-button>
+          </div>
         </el-card>
       </el-col>
     </el-row>
-    <div class="view-footer">
-        <el-button @click="onFetch">Fetch</el-button>
-    </div>
   </div>
 </template>
 
@@ -93,5 +96,5 @@ export default {
 .box-card { height: auto; }
 .status-flags { margin-top: 15px; display: flex; flex-direction: column; gap: 10px; }
 .display-mode-toggle { margin-bottom: 15px; text-align: center; }
-.view-footer { display: flex; justify-content: flex-end; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #f0f2f5; }
+.card-footer { display: flex; justify-content: flex-end; margin-top: 15px; }
 </style>
