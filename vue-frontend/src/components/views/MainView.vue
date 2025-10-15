@@ -32,7 +32,7 @@
 
             <div class="card-actions-footer">
               <el-button-group>
-                <el-button @click="onFetch">获取信息</el-button>
+                <el-button @click="onFetch" :disabled="!isSerialConnected">获取信息</el-button>
                 <el-button @click="onSave">保存参数</el-button>
                 <el-button @click="onOpenFile">打开文件</el-button>
               </el-button-group>
@@ -79,81 +79,37 @@
 <script>
 export default {
   name: 'MainView',
+  props: {
+    /**
+     * @vuese
+     * 由父组件(App.vue)传入，指示串口是否已连接。
+     * 用于控制“获取信息”按钮的可用状态。
+     */
+    isSerialConnected: {
+      type: Boolean,
+      default: false,
+    },
+  },
   data() {
-    // --- 数据初始化 ---
-
-    // Line 1 的标准数据 (14行)
-    const line1Data = [
-      { type: 'line1', channel: 'Line1', showItem: 'Ua',      second: '0.6321 V',   percent: '1.0947%',   count: 185 },
-      { type: 'line1', channel: 'Line1', showItem: 'Ub',      second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Uc',      second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Uab',     second: '0.6273 V',   percent: '0.6273%',   count: 106 },
-      { type: 'line1', channel: 'Line1', showItem: 'Ubc',     second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Uca',     second: '0.6273 V',   percent: '0.6273%',   count: 106 },
-      { type: 'line1', channel: 'Line1', showItem: 'Ia',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Ib',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Ic',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'P',       second: '0.0000 W',   percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Q',       second: '0.0000 Var', percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'S',       second: '0.0000 VA',  percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'f',       second: '0.0000 Hz',  percent: '0.0000%',   count: 0 },
-      { type: 'line1', channel: 'Line1', showItem: 'Cos phi', second: '1.0000',     percent: '96.9535%',  count: 16384 },
-    ];
-
-    // Line 2 的数据通过复制 Line 1 生成
-    const line2Data = [
-      { type: 'line2', channel: 'line2', showItem: 'Ua',      second: '0.6321 V',   percent: '1.0947%',   count: 185 },
-      { type: 'line2', channel: 'line2', showItem: 'Ub',      second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Uc',      second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Uab',     second: '0.6273 V',   percent: '0.6273%',   count: 106 },
-      { type: 'line2', channel: 'line2', showItem: 'Ubc',     second: '0.0000 V',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Uca',     second: '0.6273 V',   percent: '0.6273%',   count: 106 },
-      { type: 'line2', channel: 'line2', showItem: 'Ia',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Ib',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Ic',      second: '0.0000 A',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'P',       second: '0.0000 W',   percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Q',       second: '0.0000 Var', percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'S',       second: '0.0000 VA',  percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'f',       second: '0.0000 Hz',  percent: '0.0000%',   count: 0 },
-      { type: 'line2', channel: 'line2', showItem: 'Cos phi', second: '1.0000',     percent: '96.9535%',  count: 16384 },
-    ];
-
-    // DC 的数据 (8行)
-    const dcData = [
-      { type: 'dc', channel: 'DC', showItem: 'DC1', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC2', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC3', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC4', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC5', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC6', second: '0.0018 mA', percent: '0.0183%', count: 3 },
-      { type: 'dc', channel: 'DC', showItem: 'DC7', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-      { type: 'dc', channel: 'DC', showItem: 'DC8', second: '0.0000 mA', percent: '0.0000%', count: 0 },
-    ];
-
+    // 伪造的 Message List 数据，用于占位
     const messages = Array.from({ length: 200 }, (v, i) => ({
       msgId: i % 2 === 0 ? '32717' : '2144',
       date: '2144-06-26', time: '11:04:18', ms: 125, event: i % 2 === 0 ? '+' : '-'
     }));
 
     return {
-      // 1. 默认全部勾选
       displayOptions: ['line1', 'line2', 'dc'],
-      masterAdData: [...line1Data, ...line2Data, ...dcData],
+      masterAdData: [],
       messages,
-
-      // 2. 分页相关状态
       currentPage: 1,
-      // 默认每页行数 = Line1(14) + Line2(14) + DC(8) = 36
       pageSize: 36,
     };
   },
   computed: {
-    // AD 计算值表格的数据源
     filteredAdData() {
       if (this.displayOptions.length === 0) return [];
       return this.masterAdData.filter(row => this.displayOptions.includes(row.type));
     },
-    // Message List 表格的数据源，根据分页计算
     paginatedMessages() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
@@ -161,14 +117,140 @@ export default {
     }
   },
   methods: {
-    onFetch() { this.$message.info('正在获取最新信息...'); },
+    /**
+     * @vuese
+     * 点击“获取信息”按钮时触发。
+     * 该函数向后端发起一个 HTTP GET 请求来获取 AD 原始数据，
+     * 然后调用 calculateAdData 方法处理数据并更新表格。
+     */
+    async onFetch() {
+      if (!this.isSerialConnected) {
+        this.$message.warn('请先连接串口');
+        return;
+      }
+      this.$message.info('正在获取最新信息...');
+
+      try {
+        // 向后端发起真实请求
+        const response = await fetch('http://localhost:8080/api/device/ad-data');
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || `HTTP 错误! 状态: ${response.status}`);
+        }
+
+        // 后端返回的是一个字节数组 (e.g., [1, 185, ...])
+        const rawData = result;
+        
+        // 使用模拟的配置参数，这部分未来可以从其他后端接口获取
+        const config = this.getMockConfig();
+
+        // 调用核心计算函数处理原始数据
+        this.masterAdData = this.calculateAdData(rawData, config);
+        this.$message.success('信息获取成功');
+
+      } catch (error) {
+        console.error('获取或处理AD数据失败:', error);
+        this.$message.error(`获取信息失败: ${error.message}`);
+      }
+    },
+
+    /**
+     * @vuese
+     * 根据从后端获取的原始字节数组，计算出要在表格中显示的最终值。
+     * 此函数完整复现了 `Dlg_zjm.cpp` 中的核心计算逻辑，并增加了排序功能。
+     * @param {number[]} rawData - 从设备返回的原始字节数组。
+     * @param {object} config - 包含计算所需配置的对象。
+     * @returns {object[]} - 可直接用于表格渲染的、已排序的对象数组。
+     */
+    calculateAdData(rawData, config) {
+      const { currentStyle = 1, dimLineVotStyle = 0, dcViSelect = Array(12).fill(1) } = config;
+      const DIM_PUBLIC = 16384.0;
+      const results = [];
+
+      const lineItemDefs = [
+        { name: 'Ua',      unit: 'V',   multiplier: 57.74 },
+        { name: 'Ub',      unit: 'V',   multiplier: 57.74 },
+        { name: 'Uc',      unit: 'V',   multiplier: 57.74 },
+        { name: 'Uab',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Ubc',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Uca',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Ia',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'Ib',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'Ic',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'P',       unit: 'W',   multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true },
+        { name: 'Q',       unit: 'Var', multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true },
+        { name: 'S',       unit: 'VA',  multiplier: currentStyle === 0 ? 865.5 : 173.1 },
+        { name: 'f',       unit: 'Hz',  multiplier: 50.0 },
+        { name: 'Cos phi', unit: '',    multiplier: 1.0, signed: true },
+      ];
+
+      const dcItemDefs = Array.from({ length: 12 }, (_, i) => ({
+        name: `DC${i + 1}`,
+        unit: dcViSelect[i] === 0 ? 'V' : 'mA',
+        multiplier: dcViSelect[i] === 0 ? 5.0 : 10.0,
+      }));
+
+      const processData = (channel, itemDefs, offset) => {
+        itemDefs.forEach((def, j) => {
+          const dataIndex = offset + (j * 2);
+          if (dataIndex + 1 >= rawData.length) return;
+
+          let count = rawData[dataIndex] | (rawData[dataIndex + 1] << 8);
+
+          let isNegative = false;
+          if (def.signed && count > 32767) {
+            isNegative = true;
+            count = (count ^ 0xFFFF) + 1;
+          }
+
+          const baseValue = count / DIM_PUBLIC;
+          const finalValue = baseValue * def.multiplier;
+          const percent = baseValue * 100;
+
+          results.push({
+            type: channel.toLowerCase().replace(' ', ''),
+            channel: channel,
+            showItem: def.name,
+            second: `${isNegative ? '-' : ''}${finalValue.toFixed(4)} ${def.unit}`.trim(),
+            percent: `${isNegative ? '-' : ''}${percent.toFixed(4)}%`,
+            count: count,
+          });
+        });
+      };
+
+      // 根据C++代码分析，各个数据块在 `ADCacul_ValidData` 数组中的起始偏移量如下：
+      processData('DC',    dcItemDefs,   4);
+      processData('Line1', lineItemDefs, 28);
+      processData('Line2', lineItemDefs, 56);
+
+      // **新增排序逻辑**：确保表格数据按 Line1 -> Line2 -> DC 的顺序显示
+      const channelSortOrder = { 'Line1': 1, 'Line2': 2, 'DC': 3 };
+      results.sort((a, b) => {
+        const orderA = channelSortOrder[a.channel] || 99;
+        const orderB = channelSortOrder[b.channel] || 99;
+        return orderA - orderB;
+      });
+
+      return results;
+    },
+
+    /**
+     * @vuese
+     * 生成模拟的配置参数，用于前端调试。
+     * 在真实场景中，这些参数也应该通过后端接口从设备获取。
+     */
+    getMockConfig() {
+      return {
+        currentStyle: 1,      // 0 for 5A, 1 for 1A
+        dimLineVotStyle: 0, // 0 for 100V, 1 for 57.74V
+        dcViSelect: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], // 0 for V, 1 for mA
+      };
+    },
+
     onSave() { this.$message.success('参数已保存'); },
     onOpenFile() { this.$message.info('请选择要打开的文件'); },
-
-    // 分页事件处理
-    handleCurrentChange(val) {
-      this.currentPage = val;
-    },
+    handleCurrentChange(val) { this.currentPage = val; },
   },
 };
 </script>
@@ -193,7 +275,6 @@ export default {
   flex-shrink: 0;
 }
 
-/* --- 左侧卡片样式 --- */
 .box-card ::v-deep(.el-card__body) {
   flex-grow: 1;
   min-height: 0;
@@ -209,7 +290,6 @@ export default {
 .ad-container {
   display: flex;
   flex-direction: row;
-  /* 移除 flex-grow，让其高度由内容决定 */
 }
 
 .ad-controls {
@@ -233,11 +313,9 @@ export default {
   justify-content: center;
   align-items: center;
   padding-top: 20px;
-  /* 将按钮推到底部 */
   margin-top: auto;
 }
 
-/* --- 右侧卡片样式 --- */
 .msg-card-body-wrapper {
   display: flex;
   flex-direction: column;
