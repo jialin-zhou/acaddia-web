@@ -35,15 +35,18 @@
       </el-aside>
 
       <el-main class="main-content">
-        <component
-            :is="activeViewComponent"
-            :is-serial-connected="isSerialConnected"
-            :initial-ad-data="initialAdData"
-            :current-serial-settings="currentSerialSettings"
-            :write-to-serial="writeToSerial"
-            :last-received-frame="lastReceivedFrame"
-            @send-command="handleSendCommand"
-        />
+        <KeepAlive>
+          <component
+              :is="activeViewComponent"
+              :is-serial-connected="isSerialConnected"
+              :initial-ad-data="initialAdData"
+              :message-data="messageData"
+              :current-serial-settings="currentSerialSettings"
+              :write-to-serial="writeToSerial"
+              :last-received-frame="lastReceivedFrame"
+              @send-command="handleSendCommand"
+          />
+        </KeepAlive>
       </el-main>
     </el-container>
 
@@ -81,13 +84,16 @@ import DimSettingsDialog from './components/DimSettingsDialog.vue';
 // Import Protocol Utils
 import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打包和解包工具
 
-// --- 命令定义 (参考 DeviceInteractionService.java) ---
+// --- 命令定义 (参考 DeviceInteractionService.java 和 new1Dlg.h) ---
 // 注意: telegramNr 是发送命令中的 ID，expectedResponseId 是期望收到的响应帧中的 ID
 const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 };
 const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 };
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
 const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 };
-// 其他命令...
+// (新增) 命令用于 Message List (基于 Dlg_ZJM.cpp 和 new1Dlg.h)
+const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 }; // 对应 Msg_h_block_12, 响应 0x02
+const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 }; // 对应 Msg_block_13, 响应 0x03
+
 // [FIX] Comment out unused command definitions until methods are implemented
 // const CMD_SET_TIME = { stationAddr: 0, telegramNr: 0x1D, expectedResponseId: 0xE5 }; // 假设设置时间响应 E5
 // const CMD_REQ_TIME = { stationAddr: 0, telegramNr: 0x1C, expectedResponseId: 0x1C }; // 假设获取时间响应 0x1C
@@ -109,6 +115,12 @@ export default {
       dialogVisible: { com: false, time: false, angle: false, dim: false /*, ... other dialogs */ },
       serialPortName: '', // 用于显示
       initialAdData: null, // 存储连接时获取的 AD 数据
+      // (新增) 存储 Message List 数据
+      messageData: {
+        head: null, // 存储来自 0x02 的 payload
+        body: [],   // 存储来自 0x03 的 payload(s)
+        timestamp: null // 用于触发 computed prop 更新
+      },
       currentSerialSettings: null, // 存储当前连接的设置
 
       // --- Web Serial API State ---
@@ -248,6 +260,8 @@ export default {
       this.serialPortName = '';
       this.initialAdData = null;
       this.currentSerialSettings = null;
+      // (新增) 重置 Message List 数据
+      this.messageData = { head: null, body: [], timestamp: null };
       this.commandQueue = [];
       this.isExecutingCommand = false;
       this.unpacker = new Unpacker(); // 重置解包器状态
@@ -282,7 +296,7 @@ export default {
 
     /**
      * @vuese
-     * (新增) 异步读取串口数据直到断开连接。
+     * (修改) 异步读取串口数据直到断开连接。
      * 处理收到的数据块，送入 Unpacker，处理解析结果。
      */
     async readUntilClosed() {
@@ -300,21 +314,24 @@ export default {
 
           if (value) {
             // console.log('Received raw:', value); // 调试原始数据
-            // --- 将数据传递给 DataParsingView ---
-            // 为了简化，我们只传递解析后的帧给所有子组件
-            // 如果 DataParsingView 需要原始数据，可以另行处理或修改
-            // this.lastRawData = value; // 如果需要传递原始数据
 
             // 将收到的数据块添加到解包器
             this.unpacker.addData(value);
-            // 尝试解包
+            // 尝试解包 (MODIFIED: unpacker 现在也返回 'junk' 类型)
             const frames = this.unpacker.unpack();
             // console.log("Unpacked frames:", frames); // 调试
 
-            // 处理所有解析出的帧/ACK
+            // (MODIFIED) 处理所有解析出的帧/ACK/Junk
             for (const frame of frames) {
-              this.lastReceivedFrame = frame; // 更新最后收到的帧，传递给子组件
-              this.processFrame(frame); // 调用帧处理逻辑
+              // (MODIFIED) 始终更新 lastReceivedFrame，
+              // 以便 DataParsingView 可以显示 *所有* 收到的内容
+              this.lastReceivedFrame = frame;
+
+              // (MODIFIED) 仅当帧是协议帧时，才调用 processFrame
+              // (防止 'junk' 数据污染 MainView 等)
+              if (frame.type !== 'junk') {
+                this.processFrame(frame); // 调用帧处理逻辑
+              }
             }
           }
         } catch (error) {
@@ -336,21 +353,13 @@ export default {
 
     /**
      * @vuese
-     * (新增) 处理从 Unpacker 解析出的单个帧或 ACK。
-     * @param {object} frame - 解析出的帧对象 ({ type, ... })。
+     * (修改) 处理从 Unpacker 解析出的单个帧或 ACK。
+     * (注意: 'junk' 类型的帧不会被发送到这里)
+     * @param {object} frame - 解析出的帧对象 ({ type: 'data'|'ack_e5', ... })。
      */
     async processFrame(frame) {
       // --- 可以在这里将收到的帧信息发送给 DataParsingView ---
-      // 例如，格式化后发送事件：
-      // let logMsg = '';
-      // if (frame.type === 'data') {
-      //    logMsg = `HEX: ${Array.from(frame.raw).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')}`;
-      // } else if (frame.type === 'ack_e5') {
-      //    logMsg = 'ACK: E5';
-      // }
-      // if (logMsg) {
-      //   // 使用事件总线或直接调用 DataParsingView 的方法 (如果 ref 可用)
-      // }
+      // (已通过 lastReceivedFrame prop 和 DataParsingView.vue 中的 watch 实现)
 
       if (frame.type === 'ack_e5') {
         // 处理 E5 ACK
@@ -399,14 +408,30 @@ export default {
           // 可根据 frame.telegramNr 处理不同的主动上报数据
         }
 
-        // 3. 特殊处理：如果收到的是 AD 计算值 (ID 0x24)，更新 initialAdData
+        // 3. (修改) 特殊处理：根据 telegramNr 更新不同的数据
+
+        // AD 计算值 (ID 0x24) -> initialAdData
         if (frame.telegramNr === CMD_REQ_AD_CALC.expectedResponseId) {
           console.log("Updating initialAdData with received payload.");
           // 将 Uint8Array 转换为普通的 number 数组，以便 Vue 正确处理
           this.initialAdData = Array.from(frame.payload);
         }
-        // 可在此处添加对其他 telegramNr 的处理逻辑，例如更新其他视图的数据
-        // else if (frame.telegramNr === CMD_REQ_TQCS.expectedResponseId) { ... }
+
+        // (新增) Message List Head (ID 0x02) -> messageData.head
+        else if (frame.telegramNr === CMD_REQ_MSG_HEAD.expectedResponseId) {
+          console.log("Updating messageData.head with received payload.");
+          this.messageData.head = Array.from(frame.payload);
+          this.messageData.body = []; // 收到新的 head 时，清空 body
+          this.messageData.timestamp = new Date().getTime(); // 触发更新
+        }
+
+        // (新增) Message List Body (ID 0x03) -> messageData.body
+        else if (frame.telegramNr === CMD_REQ_MSG_BODY.expectedResponseId) {
+          console.log("Updating messageData.body with received payload.");
+          // (基于 new1Dlg.cpp 中 Msg_Len 的逻辑，我们追加 payload)
+          this.messageData.body.push(...Array.from(frame.payload));
+          this.messageData.timestamp = new Date().getTime(); // 触发更新
+        }
 
       }
     },
@@ -518,22 +543,27 @@ export default {
 
     /**
      * @vuese
-     * (新增) 处理来自子组件的通用发送命令请求。
+     * (修改) 处理来自子组件的通用发送命令请求。
      * @param {object} event - 包含 commandDef, payload, timeout 的事件对象。
      */
     async handleSendCommand({ commandDef, payload, timeout }) {
       if (!this.isSerialConnected) {
         this.$message.error('串口未连接');
-        return;
+        // (新增) 抛出错误以便调用者捕获
+        throw new Error('串口未连接');
       }
       try {
-        // [FIX] Comment out unused variable assignment
-        /* const responseFrame = */ await this.sendCommand(commandDef, payload, timeout);
-        this.$message.success(`命令 ${commandDef.telegramNr} 执行成功`);
-        // 可以选择性地将 responseFrame 发送回触发的子组件，或通过 lastReceivedFrame 传递
+        // (修改) 将 sendCommand 返回的 responseFrame 传递回去
+        const responseFrame = await this.sendCommand(commandDef, payload, timeout);
+        // this.$message.success(`命令 ${commandDef.telegramNr} 执行成功`); // 暂时注释掉，避免过多消息
         // console.log("Command response:", responseFrame);
+        // (新增) 将响应帧返回给调用者
+        return responseFrame;
+
       } catch (error) {
         this.$message.error(`命令 ${commandDef.telegramNr} 执行失败: ${error.message}`);
+        // (新增) 抛出错误以便调用者捕获
+        throw error;
       }
     },
 
