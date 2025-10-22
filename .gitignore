@@ -38,3 +38,6 @@ build/
 ### Mac OS ###
 .DS_Store
 /vue-frontend/node_modules/
+#/vue-frontend/public/prepre-acaddia/
+#/vue-frontend/public/pre-acaddia/
+

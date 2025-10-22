@@ -1,121 +1,116 @@
 package com.dctrans.service;
 
-import com.dctrans.protocol.TelegramProtocolService;
-import com.dctrans.serial.SerialPortService;
-import com.fazecast.jSerialComm.SerialPort;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+// import com.fazecast.jSerialComm.SerialPort; // 不再需要
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Collections; // 用于返回空列表
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
+/**
+ * @class DeviceInteractionService
+ * @brief (已修改) 负责与串口设备进行交互的核心服务类。
+ * @details 由于采用 Web Serial API，此类不再处理实际的串口通信。
+ * 相关的串口操作方法已被注释掉。
+ * 保留框架以备将来可能添加的非串口服务逻辑。
+ */
 @Service
 public class DeviceInteractionService {
 
-    private final SerialPortService serialPortService;
-    private final TelegramProtocolService protocolService;
-    private final SimpMessagingTemplate messagingTemplate;
+    /* --- Web Serial API 替代了以下串口操作逻辑 --- */
 
-    @Autowired
-    public DeviceInteractionService(SerialPortService serialPortService,
-                                  TelegramProtocolService protocolService,
-                                  SimpMessagingTemplate messagingTemplate) {
-        this.serialPortService = serialPortService;
-        this.protocolService = protocolService;
-        this.messagingTemplate = messagingTemplate;
+    /*
+    private final ReentrantLock serialOperationLock = new ReentrantLock();
+
+    // --- Command Definitions ---
+    private static final byte[] CMD_REQ_TQCS = {(byte) 0x68, 0x04, 0x04, (byte) 0x68, 0x00, 0x09, (byte) 0x80, 0x23, (byte) 0xAC, 0x16};
+    // ... 其他命令定义 ...
+    private static final byte[] CMD_ACK = {(byte) 0xA2};
+
+    public List<String> getAvailablePorts() {
+        System.out.println("[Service] Scanning for available serial ports...");
+        SerialPort[] ports = SerialPort.getCommPorts();
+        List<String> portNames = Arrays.stream(ports)
+                .map(SerialPort::getSystemPortName)
+                .collect(Collectors.toList());
+        System.out.println("[Service] Found ports: " + portNames);
+        return portNames;
+         return Collections.emptyList(); // 返回空列表，因为此方法不再有效
     }
 
-    // ... (existing connect, disconnect, etc. methods)
-    public void connect(Map<String, Object> settings) {
-        try {
-            String port = (String) settings.get("port");
-            int baudRate = ((Number) settings.get("baudRate")).intValue();
-            int dataBits = ((Number) settings.get("dataBits")).intValue();
-            int stopBits = ((Number) settings.get("stopBits")).intValue();
-            String parityStr = (String) settings.get("parity");
-            int parity = "None".equalsIgnoreCase(parityStr) ? SerialPort.NO_PARITY :
-                         "Odd".equalsIgnoreCase(parityStr) ? SerialPort.ODD_PARITY :
-                         "Even".equalsIgnoreCase(parityStr) ? SerialPort.EVEN_PARITY : SerialPort.NO_PARITY;
 
-            boolean success = serialPortService.connect(port, baudRate, dataBits, stopBits, parity, this::handleIncomingSerialData);
-            sendSerialStatusUpdate(success);
-        } catch (Exception e) {
-            System.err.println("Error parsing connection settings: " + e.getMessage());
-            sendSerialStatusUpdate(false);
+    public byte[] connectAndFetchInitialData(Map<String, Object> settings) {
+        // ... (原串口连接和命令序列逻辑) ...
+         throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
+    }
+
+
+    public byte[] fetchAdCalculatedData(Map<String, Object> settings) {
+        // ... (原获取 AD 数据逻辑) ...
+         throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
+    }
+
+
+    private byte[] executeFullConnectionSequence(SerialPort port) {
+       // ... (原命令序列执行逻辑) ...
+        throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
+    }
+
+
+    private SerialPort openAndConfigurePort(Map<String, Object> settings) {
+        // ... (原打开和配置串口逻辑) ...
+        throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
+    }
+
+
+    private void closePort(SerialPort port) {
+       // ... (原关闭串口逻辑) ...
+        // No longer needed from backend
+    }
+
+
+    private byte calculateChecksum(byte[] dataBlock) {
+       // 这个辅助函数如果协议解析仍在后端，可能有用，但现在在前端 acadia-protocol.js 实现
+        int sum = 0;
+        for (byte b : dataBlock) {
+            sum = (sum + (b & 0xFF)) & 0xFF;
         }
+        return (byte) sum;
     }
 
-    public void disconnect() {
-        serialPortService.disconnect();
-        sendSerialStatusUpdate(false);
+
+    private byte[] executeSingleCommand(SerialPort port, byte[] command, byte expectedResponseTelegramId) {
+        // ... (原单命令执行和帧解析逻辑) ...
+         throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
     }
 
-    public void fetchAndSendAvailablePorts() {
-        List<String> ports = serialPortService.getAvailablePorts();
-        messagingTemplate.convertAndSend("/topic/status", Map.of("type", "available-ports", "payload", ports));
+
+    public byte[] sendAndReceiveData(Map<String, Object> settings, byte[] dataToSend, int readTimeoutMillis) {
+       // ... (原通用收发逻辑) ...
+        throw new UnsupportedOperationException("Serial operations moved to frontend (Web Serial API)");
     }
 
-    /**
-     * Sets the time on the device (simulated).
-     * @param timePayload The time string from the frontend.
-     */
-    public void setTime(String timePayload) {
-        System.out.println("Attempting to set device time to: " + timePayload);
-        // In a real application, you would pack this command and send it via serialPortService.write()
-        // byte[] setTimeCommand = protocolService.pack(Map.of("setTime", timePayload));
-        // serialPortService.write(setTimeCommand);
-
-        // For now, we'll just send a success confirmation back to the frontend.
-        Map<String, Object> response = Map.of(
-            "type", "time-set-response",
-            "payload", Map.of("success", true, "message", "Time set to " + timePayload)
-        );
-        messagingTemplate.convertAndSend("/topic/status", response);
-    }
-
-    /**
-     * Fetches the current time (simulated from server) and sends it to the frontend.
-     */
-    public void fetchTime() {
-        System.out.println("Fetching device time...");
-        // In a real application, you would send a command to request the time and wait for a response.
-        // For now, we'll use the server's current time.
-        String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-
-        Map<String, Object> response = Map.of(
-            "type", "time-fetch-response",
-            "payload", Map.of("deviceTime", currentTime)
-        );
-        messagingTemplate.convertAndSend("/topic/status", response);
-    }
-
-    public void sendCommand(Object commandData) {
-        if (!serialPortService.isConnected()) {
-            messagingTemplate.convertAndSend("/topic/status", Map.of("type", "error", "payload", "Port not connected"));
-            return;
+    private String toHexString(byte[] bytes) {
+        // 这个辅助函数可能仍然有用，如果后端需要处理字节数组日志等
+        if (bytes == null) return "null";
+        StringJoiner joiner = new StringJoiner(" ");
+        for (byte b : bytes) {
+            joiner.add(String.format("%02X", b));
         }
-        byte[] dataFrame = protocolService.pack(commandData);
-        serialPortService.write(dataFrame);
-        pushRawDataToFrontend(dataFrame, "OUT");
+        return joiner.toString();
     }
-
-    private void handleIncomingSerialData(byte[] data) {
-        pushRawDataToFrontend(data, "IN");
-    }
-
-    private void pushRawDataToFrontend(byte[] data, String direction) {
-        Map<String, Object> message = Map.of(
-            "direction", direction,
-            "payload", data
-        );
-        messagingTemplate.convertAndSend("/topic/raw-data", message);
-    }
-
-    private void sendSerialStatusUpdate(boolean isConnected) {
-        Map<String, Object> statusUpdate = Map.of("type", "serial-status", "payload", Map.of("connected", isConnected));
-        messagingTemplate.convertAndSend("/topic/status", statusUpdate);
+    */
+    // 可以保留 toHexString 或其他非串口相关的辅助方法
+    private String toHexString(byte[] bytes) {
+        if (bytes == null) return "null";
+        StringJoiner joiner = new StringJoiner(" ");
+        for (byte b : bytes) {
+            joiner.add(String.format("%02X", b));
+        }
+        return joiner.toString();
     }
 }
