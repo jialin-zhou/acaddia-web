@@ -1,6 +1,9 @@
 /**
  * Acadia Telemetry Protocol Encoder/Decoder
  * Based on the C++ implementation in TeleProcess.cpp
+ *
+ * (MODIFIED) Unpacker.unpack() has been rewritten to handle and report
+ * non-protocol ("junk") data, in addition to 'data' and 'ack_e5' frames.
  */
 
 const HEADER = 0x68;
@@ -63,7 +66,7 @@ export function pack(options) {
     // 完整帧长度 = 6 (帧头*2, 长度*2, 校验和, 帧尾) + 数据块长度
     const frame = new Uint8Array(6 + blockLengthActual);
     frame[0] = HEADER;         // 帧头1
-    frame[1] = blockLengthActual; // 长度1
+    frame[1] = blockLengthActual; // 长度 1
     frame[2] = blockLengthActual; // 长度 2 (与长度1相同)
     frame[3] = HEADER;         // 帧头2
     frame.set(dataBlock, 4);   // 复制数据块 (从第5个字节开始)
@@ -84,7 +87,7 @@ export function packAck() {
 
 /**
  * A stateful class to unpack Acadia protocol frames from a streaming data source.
- * Handles both standard data frames (68...16) and simple ACKs (E5).
+ * Handles standard data frames (68...16), simple ACKs (E5), and junk data.
  */
 export class Unpacker {
     constructor() {
@@ -108,126 +111,127 @@ export class Unpacker {
     }
 
     /**
-     * Attempts to parse complete frames or ACKs from the internal buffer.
+     * (MODIFIED)
+     * Attempts to parse complete frames, ACKs, and junk data from the internal buffer.
      * @returns {Array<object>} An array of parsed objects.
-     * - For data frames: { type: 'data', stationAddr, funcCode1, funcCode2, telegramNr, payload, raw }
+     * - For data frames: { type: 'data', stationAddr, ..., payload, raw }
      * - For E5 ACK: { type: 'ack_e5', raw: Uint8Array([0xE5]) }
+     * - For non-protocol: { type: 'junk', raw: Uint8Array[...] }
      */
     unpack() {
         const frames = []; // 存储解析出的帧或ACK
         let consumedBytes = 0; // 记录已处理的字节数
+        let searchOffset = 0; // 记录当前在缓冲区中搜索的位置
 
-        while (this.buffer.length > consumedBytes) {
-            const firstByte = this.buffer[consumedBytes];
+        while (this.buffer.length > searchOffset) {
+            const firstByte = this.buffer[searchOffset];
 
-            // --- 检查 E5 ACK ---
+            // --- 1. 检查 E5 ACK ---
             if (firstByte === ACK_SLAVE_TO_MASTER) {
-                // console.log("Found E5 ACK"); // 调试
+                // 发现 E5。
+                // 首先，将在它之前的所有字节报告为 "junk"。
+                if (searchOffset > consumedBytes) {
+                    frames.push({
+                        type: 'junk',
+                        raw: this.buffer.subarray(consumedBytes, searchOffset)
+                    });
+                }
+                // 报告 E5 帧
                 frames.push({
                     type: 'ack_e5',
-                    raw: this.buffer.subarray(consumedBytes, consumedBytes + 1)
+                    raw: this.buffer.subarray(searchOffset, searchOffset + 1)
                 });
-                consumedBytes += 1; // 消耗掉 E5 字节
-                continue; // 继续尝试解析缓冲区剩余部分
+                // 更新已消耗字节和搜索偏移
+                consumedBytes = searchOffset + 1;
+                searchOffset = consumedBytes;
+                continue; // 继续从下一个字节开始搜索
             }
 
-            // --- 尝试解析 68 ... 16 数据帧 ---
-            // 查找第一个帧头 0x68，从当前已消耗字节之后开始
-            const frameStartIndex = this.buffer.indexOf(HEADER, consumedBytes);
-            // console.log(`Searching for HEADER from offset ${consumedBytes}, found at ${frameStartIndex}`); // 调试
+            // --- 2. 检查 68 帧头 ---
+            if (firstByte === HEADER) {
+                // 发现 68。尝试解析完整帧。
 
-            if (frameStartIndex === -1) {
-                // 如果在剩余的缓冲区中找不到帧头，说明没有完整帧了
-                break; // 退出循环
-            }
+                // 检查是否有足够的字节读取头 (68 L L 68)
+                if (this.buffer.length < searchOffset + 4) {
+                    break; // 数据不足，停止解析，等待更多数据
+                }
+                // 检查第二个 68 是否在正确位置
+                if (this.buffer[searchOffset + 3] !== HEADER) {
+                    searchOffset++; // 结构错误，跳过这个 68，继续搜索
+                    continue;
+                }
+                // 检查长度 L1 和 L2 是否一致
+                const blockLength = this.buffer[searchOffset + 1];
+                if (blockLength !== this.buffer[searchOffset + 2]) {
+                    searchOffset++; // 长度不匹配，跳过这个 68
+                    continue;
+                }
+                // 检查缓冲区是否有足够的字节容纳完整帧
+                const frameLength = 4 + blockLength + 2; // 4(头) + L(数据) + 2(校验+尾)
+                if (this.buffer.length < searchOffset + frameLength) {
+                    break; // 数据不足，停止解析，等待更多数据
+                }
 
-            // 如果找到的帧头不是在当前消耗位置，说明 E5 和帧头之间可能有无效数据
-            if (frameStartIndex > consumedBytes) {
-                console.warn(`Discarding ${frameStartIndex - consumedBytes} unexpected bytes before frame header:`, this.buffer.subarray(consumedBytes, frameStartIndex));
-                consumedBytes = frameStartIndex; // 跳过无效数据
-            }
+                // 提取完整帧进行验证
+                const frame = this.buffer.subarray(searchOffset, searchOffset + frameLength);
 
+                // 检查帧尾
+                if (frame[frame.length - 1] !== FOOTER) {
+                    searchOffset++; // 帧尾错误，跳过这个 68
+                    continue;
+                }
 
-            // 检查缓冲区是否有足够的字节来读取帧头和长度 (至少4字节: 68 L L 68)
-            if (this.buffer.length < frameStartIndex + 4) {
-                // 数据不足以判断帧结构，保留从帧头开始的部分，等待更多数据
-                // console.log("Buffer too short for header + length check"); // 调试
-                break;
-            }
+                // --- 帧结构正确，校验 Checksum ---
+                const dataBlock = frame.subarray(4, 4 + blockLength);
+                const receivedChecksum = frame[frame.length - 2];
+                const calculatedChecksum = calculateChecksum(dataBlock);
 
-            // 检查第二个帧头是否存在于正确位置 (索引 frameStartIndex + 3)
-            if (this.buffer[frameStartIndex + 3] !== HEADER) {
-                // 结构错误 (不是 68 L L 68)，可能是单个 68 干扰字节
-                console.warn(`Invalid frame structure: Second HEADER not found at index ${frameStartIndex + 3}. Discarding byte at ${frameStartIndex}.`);
-                consumedBytes = frameStartIndex + 1; // 跳过这个错误的 68，从下一个字节继续搜索
-                continue;
-            }
+                if (receivedChecksum === calculatedChecksum) {
+                    // 校验成功！这是一个有效帧
+                    // 首先，报告在它之前的所有 "junk" 数据
+                    if (searchOffset > consumedBytes) {
+                        frames.push({
+                            type: 'junk',
+                            raw: this.buffer.subarray(consumedBytes, searchOffset)
+                        });
+                    }
+                    // 报告有效数据帧
+                    frames.push({
+                        type: 'data', // 标记为数据帧
+                        stationAddr: dataBlock[0],
+                        funcCode1: dataBlock[1],
+                        funcCode2: dataBlock[2],
+                        telegramNr: dataBlock[3], // 报文序列号/ID
+                        payload: dataBlock.subarray(4), // 数据负载 (从第5个字节开始)
+                        raw: frame, // 包含原始帧数据
+                    });
+                    // 更新已消耗字节和搜索偏移
+                    consumedBytes = searchOffset + frameLength;
+                    searchOffset = consumedBytes;
+                    continue; // 继续从下一个字节开始搜索
+                } else {
+                    // 校验和失败
+                    console.warn(`Checksum mismatch: Received ${receivedChecksum}, calculated ${calculatedChecksum}. Discarding header.`);
+                    searchOffset++; // 跳过这个 68
+                    continue;
+                }
+            } // end if (firstByte === HEADER)
 
-            // 读取数据块长度 L (位于索引 frameStartIndex + 1)
-            const blockLength = this.buffer[frameStartIndex + 1];
-            // 检查 L1 和 L2 是否相等 (位于索引 frameStartIndex + 2)
-            if (blockLength !== this.buffer[frameStartIndex + 2]) {
-                // 长度字段不匹配，帧结构错误
-                console.warn(`Invalid frame structure: Length bytes mismatch (${blockLength} != ${this.buffer[frameStartIndex + 2]}). Discarding byte at ${frameStartIndex}.`);
-                consumedBytes = frameStartIndex + 1; // 跳过这个错误的 68
-                continue;
-            }
+            // --- 3. 既不是 E5 也不是 68 ---
+            // 这是一个 "junk" 字节，继续向后搜索
+            searchOffset++;
 
-            // 计算完整的预期帧长度
-            const frameLength = 4 + blockLength + 2; // 4字节头 + L字节数据块 + 校验和 + 帧尾
-            // console.log(`Expected blockLength=${blockLength}, frameLength=${frameLength}`); // 调试
-
-            // 检查缓冲区中从帧头开始是否有足够的数据容纳整个帧
-            if (this.buffer.length < frameStartIndex + frameLength) {
-                // 数据不足以构成完整帧，保留从帧头开始的部分，等待更多数据
-                // console.log(`Buffer too short for complete frame (need ${frameLength}, have ${this.buffer.length - frameStartIndex})`); // 调试
-                break;
-            }
-
-            // 提取完整的帧数据
-            const frame = this.buffer.subarray(frameStartIndex, frameStartIndex + frameLength);
-
-            // 检查帧尾是否为 0x16
-            if (frame[frame.length - 1] !== FOOTER) {
-                // 帧尾错误
-                console.warn(`Invalid frame footer: Expected ${FOOTER}, got ${frame[frame.length - 1]}. Discarding byte at ${frameStartIndex}.`);
-                consumedBytes = frameStartIndex + 1; // 跳过这个帧的起始 68
-                continue;
-            }
-
-            // --- 帧结构基本正确，开始校验 ---
-            // 提取数据块 (位于帧头之后，校验和之前)
-            const dataBlock = frame.subarray(4, 4 + blockLength);
-            // 提取接收到的校验和 (位于帧尾之前)
-            const receivedChecksum = frame[frame.length - 2];
-            // 计算数据块的校验和
-            const calculatedChecksum = calculateChecksum(dataBlock);
-
-            // 比较校验和
-            if (receivedChecksum === calculatedChecksum) {
-                // 校验成功！解析数据块内容
-                // console.log("Checksum OK. Parsing frame."); // 调试
-                frames.push({
-                    type: 'data', // 标记为数据帧
-                    stationAddr: dataBlock[0],
-                    funcCode1: dataBlock[1],
-                    funcCode2: dataBlock[2],
-                    telegramNr: dataBlock[3], // 报文序列号/ID
-                    payload: dataBlock.subarray(4), // 数据负载 (从第5个字节开始)
-                    raw: frame, // 包含原始帧数据
-                });
-                // 消耗掉已成功解析的帧所占用的字节
-                consumedBytes = frameStartIndex + frameLength;
-                // console.log(`Frame parsed successfully. Consumed ${consumedBytes} bytes.`); // 调试
-                // 从头继续扫描剩余缓冲区
-                // (因为一个数据包里可能紧跟着下一个帧或ACK)
-            } else {
-                // 校验和失败
-                console.warn(`Checksum mismatch: Received ${receivedChecksum}, calculated ${calculatedChecksum}. Discarding byte at ${frameStartIndex}. Frame:`, frame);
-                consumedBytes = frameStartIndex + 1; // 跳过这个帧的起始 68
-                continue;
-            }
         } // end while
+
+        // 循环结束后，检查是否在末尾遗留了未处理的 "junk" 数据
+        // (即 searchOffset 走到了缓冲区末尾，但 consumedBytes 没跟上)
+        if (searchOffset > consumedBytes && searchOffset === this.buffer.length) {
+            frames.push({
+                type: 'junk',
+                raw: this.buffer.subarray(consumedBytes, searchOffset)
+            });
+            consumedBytes = searchOffset;
+        }
 
         // 处理完所有能解析的帧后，更新缓冲区，移除已消耗的字节
         if (consumedBytes > 0) {

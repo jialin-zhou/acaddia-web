@@ -19,12 +19,11 @@
       <div class="serial-send-controls">
         <el-input
             v-model="dataToSend"
-            placeholder="输入文本, 或以 'HEX:' 开头的十六进制报文 (例如 HEX: 68 04...)"
+            placeholder="输入十六进制报文 (例如: 68 04 04 68 00 09 80 25 AE 16)"
             class="send-input"
             @keyup.enter="sendSerialData"
             :disabled="!isSerialConnected"
         />
-        <el-checkbox v-model="interpretHexInput" label="智能识别HEX" border class="send-checkbox" :disabled="!isSerialConnected" />
         <el-button type="primary" @click="sendSerialData" :disabled="!isSerialConnected">发送</el-button>
       </div>
     </el-card>
@@ -32,15 +31,17 @@
 </template>
 
 <script>
-// Helper function to format byte array to HEX string
+/**
+ * @vuese
+ * (修改) 辅助函数：将字节数组格式化为两位补零的十六进制字符串。
+ * @param {Uint8Array|number[]} bytes - The byte array or number array to format.
+ * @returns {string} The formatted HEX string (e.g., "0A 1F 03").
+ */
 function formatBytesToHex(bytes) {
   if (!bytes || bytes.length === 0) return '';
-  // 如果输入已经是 number[], 直接用
-  if (typeof bytes[0] === 'number') {
-    return bytes.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
-  }
-  // 否则假定是 Uint8Array
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+  const byteArray = (bytes instanceof Uint8Array) ? Array.from(bytes) : bytes;
+  // (修改) 使用 padStart(2, '0') 确保每个字节都显示为两位
+  return byteArray.map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
 }
 
 // Helper to get formatted timestamp
@@ -66,8 +67,8 @@ export default {
     writeToSerial: { type: Function, default: () => Promise.resolve(false) },
     /**
      * @vuese
-     * (新增) 从 App.vue 传入的最后接收到的已解析帧。
-     * { type: 'data'|'ack_e5', raw: Uint8Array, ...otherProps }
+     * (修改) 从 App.vue 传入的最后接收到的帧 (或数据块)。
+     * { type: 'data'|'ack_e5'|'junk', raw: Uint8Array, ...otherProps }
      */
     lastReceivedFrame: { type: Object, default: null }
   },
@@ -75,26 +76,27 @@ export default {
     return {
       serialLogs: [],
       dataToSend: '',
-      interpretHexInput: true, // 默认启用智能 HEX 识别
+      // interpretHexInput: true, // (移除) 不再需要
     };
   },
   watch: {
     /**
      * @vuese
-     * (新增) 监视来自 App.vue 的新接收帧，并将其添加到日志中。
+     * (修改) 监视来自 App.vue 的新接收帧(或数据)，并将其添加到日志中。
+     * 现在可以处理 'data', 'ack_e5' 和 'junk' 类型。
      */
     lastReceivedFrame(newFrame) {
-      if (newFrame) {
+      if (newFrame && newFrame.raw) {
         let logMessage = '';
-        if (newFrame.type === 'data' && newFrame.raw) {
+
+        if (newFrame.type === 'data') {
           logMessage = `HEX: ${formatBytesToHex(newFrame.raw)}`;
         } else if (newFrame.type === 'ack_e5') {
           logMessage = 'ACK: E5';
+        } else if (newFrame.type === 'junk') {
+          // (新增) 处理非协议数据
+          logMessage = `RAW: ${formatBytesToHex(newFrame.raw)} (Non-protocol)`;
         }
-        // 可选：添加对其他类型帧或原始数据的处理
-        // else if (newFrame.type === 'raw_bytes' && newFrame.data) {
-        //    logMessage = `RAW: ${formatBytesToHex(newFrame.data)}`;
-        // }
 
         if (logMessage) {
           this.addSerialLog(logMessage, 'in');
@@ -125,8 +127,8 @@ export default {
 
     /**
      * @vuese
-     * (重写) 发送串口数据。
-     * 解析输入（文本或HEX），然后调用 App.vue 的 writeToSerial 方法。
+     * (修改) 发送串口数据。
+     * 始终将输入解析为 HEX 字符串，然后调用 App.vue 的 writeToSerial 方法。
      */
     async sendSerialData() {
       if (!this.isSerialConnected) {
@@ -141,23 +143,17 @@ export default {
       try {
         const input = this.dataToSend.trim();
 
-        // 智能识别 HEX 或处理普通文本
-        if (this.interpretHexInput && input.toUpperCase().startsWith('HEX:')) {
-          const hex = input.substring(4).replace(/\s+/g, '');
-          if (!/^[0-9A-Fa-f]*$/.test(hex) || hex.length % 2 !== 0) {
-            throw new Error('HEX 格式错误: 请输入偶数长度的十六进制字符 (0-9, A-F)。');
-          }
-          const bytes = [];
-          for (let i = 0; i < hex.length; i += 2) {
-            bytes.push(parseInt(hex.substr(i, 2), 16));
-          }
-          dataBuffer = new Uint8Array(bytes);
-          logMessage = `HEX: ${formatBytesToHex(dataBuffer)}`; // 记录格式化后的 HEX
-        } else {
-          // 作为普通文本发送
-          dataBuffer = new TextEncoder().encode(input);
-          logMessage = `ASCII: ${input}`;
+        // (修改) 直接处理为 HEX
+        const hex = input.replace(/\s+/g, ''); // 移除所有空格
+        if (!/^[0-9A-Fa-f]*$/.test(hex) || hex.length % 2 !== 0) {
+          throw new Error('HEX 格式错误: 请输入偶数长度的十六进制字符 (0-9, A-F)。');
         }
+        const bytes = [];
+        for (let i = 0; i < hex.length; i += 2) {
+          bytes.push(parseInt(hex.substr(i, 2), 16));
+        }
+        dataBuffer = new Uint8Array(bytes);
+        logMessage = `HEX: ${formatBytesToHex(dataBuffer)}`; // 记录格式化后的 HEX
 
         // 记录将要发送的内容
         this.addSerialLog(logMessage, 'out');
@@ -215,5 +211,6 @@ export default {
 }
 .serial-send-controls { display: flex; align-items: center; flex-shrink: 0; /* 防止发送控件被压缩 */ }
 .send-input { flex-grow: 1; margin-right: 10px; }
-.send-checkbox { margin-right: 10px; }
+/* (移除) Checkbox 样式不再需要 */
+/* .send-checkbox { margin-right: 10px; } */
 </style>

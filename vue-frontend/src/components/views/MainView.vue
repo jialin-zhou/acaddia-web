@@ -71,7 +71,7 @@
                   v-model:current-page="currentPage"
                   v-model:page-size="pageSize"
                   layout="total, prev, pager, next"
-                  :total="messages.length"
+                  :total="processedMessages.length"
                   @current-change="handleCurrentChange"
               />
             </div>
@@ -83,8 +83,11 @@
 </template>
 
 <script>
-// (新增) 导入 App.vue 定义的命令
+// (新增) 导入 App.vue 定义的命令 (本地定义，因为它们未导出)
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
+// (新增) 命令用于 Message List (基于 Dlg_ZJM.cpp 和 new1Dlg.h)
+const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 }; // 对应 Msg_h_block_12, 响应 0x02
+const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 }; // 对应 Msg_block_13, 响应 0x03
 
 export default {
   name: 'MainView',
@@ -92,23 +95,19 @@ export default {
     isSerialConnected: { type: Boolean, default: false },
     currentSerialSettings: { type: Object, default: null },
     initialAdData: { type: Array, default: null },
-    // (新增) 从 App.vue 接收发送命令的方法
+    // (新增) 接收来自 App.vue 的 Message List 原始数据
+    messageData: { type: Object, default: null },
+    // (修改) 从 App.vue 接收发送命令的方法
     sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") }
   },
   data() {
-    // 伪造的 Message List 数据，用于占位
-    const messages = Array.from({ length: 200 }, (v, i) => ({
-      msgId: i % 2 === 0 ? '32717' : '2144',
-      date: '2144-06-26', time: '11:04:18', ms: 125, event: i % 2 === 0 ? '+' : '-'
-    }));
-
     return {
       displayOptions: ['line1', 'line2', 'dc'],
       masterAdData: [],
-      messages,
+      // messages, // (移除) 不再使用伪造数据
       currentPage: 1,
       pageSize: 36,
-      isLoading: false, // 新增：加载状态
+      isLoading: false, // (新增) 加载状态
     };
   },
   computed: {
@@ -116,12 +115,121 @@ export default {
       if (!this.masterAdData || this.masterAdData.length === 0) return [];
       return this.masterAdData.filter(row => this.displayOptions.includes(row.type));
     },
+
+    /**
+     * @vuese
+     * (新增) 解析来自 App.vue 的 messageData prop (原始字节)
+     * 并将其转换为 Message List 表格所需的格式。
+     * 完整复现了 Dlg_ZJM::updateData 中的解析逻辑。
+     */
+    processedMessages() {
+      // 依赖 timestamp 触发更新
+      if (!this.messageData || !this.messageData.timestamp) return [];
+
+      // (基于 Dlg_ZJM.cpp 的辅助函数)
+      const getDateString = (startDate, daysElapsed) => {
+        const targetDate = new Date(startDate.getTime()); // 克隆日期
+        targetDate.setDate(targetDate.getDate() + daysElapsed);
+        const yyyy = targetDate.getFullYear();
+        const mm = String(targetDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(targetDate.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
+      // (基于 Dlg_ZJM.cpp 的辅助函数)
+      const formatTime = (msSinceMidnight) => {
+        const totalSeconds = Math.floor(msSinceMidnight / 1000);
+        const ms = msSinceMidnight % 1000;
+        const hours = Math.floor(totalSeconds / 3600) % 24;
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        const H = String(hours).padStart(2, '0');
+        const M = String(minutes).padStart(2, '0');
+        const S = String(seconds).padStart(2, '0');
+        return { time: `${H}:${M}:${S}`, ms };
+      };
+
+      const baseDate1984 = new Date(1984, 0, 1); // JS 月份从0开始
+      const messages = [];
+      const headData = this.messageData.head; // (来自 0x02)
+      const bodyData = this.messageData.body; // (来自 0x03)
+
+      try {
+        // 1. (基于 Dlg_ZJM.cpp) 处理 MsgList_h_ValidData[] (headData)
+        if (headData && headData.length >= 14) {
+          const msgNr = headData[13] & 0x7F; //
+          for (let k = 0; k < msgNr; k++) {
+            const offset = 14 + 8 * k; //
+            if (headData.length < offset + 8) break; // 安全检查
+
+            //
+            const msgIDRaw = headData[offset] | (headData[offset + 1] << 8);
+            const msgID = msgIDRaw - 32768; //
+
+            //
+            const daysRaw = headData[offset + 2] | (headData[offset + 3] << 8);
+            const dateStr = getDateString(baseDate1984, daysRaw + 1); //
+
+            //
+            const msRaw = (headData[offset + 4] | (headData[offset + 5] << 8)) |
+                ((headData[offset + 6] | (headData[offset + 7] << 8)) << 16);
+            const { time, ms } = formatTime(msRaw);
+
+            const event = (msgIDRaw > 32767) ? '+' : '-'; //
+
+            messages.push({ msgId: msgID, date: dateStr, time, ms, event });
+          }
+        }
+
+        // 2. (基于 Dlg_ZJM.cpp) 处理 MsgList_ValidData[] (bodyData)
+        // (这段逻辑很奇怪，混合使用 headData 和 bodyData，完全遵照 C++ 源码复现)
+        if (bodyData && bodyData.length >= 5 && headData) {
+          // (MsgList_ValidData[4] - 128)
+          // 注意：C++ 源码中 bodyData 是一个连续的缓冲区，而我们的是一个数组
+          // 假设 bodyData 已经被 App.vue 拼接成了一个大数组
+          const msgNrBody = bodyData[4] - 128;
+          for (let kk = 0; kk < msgNrBody; kk++) {
+            const bodyOffset = 5 + 8 * kk; //
+            const headOffset = 6 + 8 * kk; //
+
+            // 安全检查 (C++ 代码中没有，但 JS 中必须)
+            if (bodyData.length < bodyOffset + 1 || headData.length < headOffset + 7) {
+              console.warn("Message list body parsing: out of bounds");
+              break;
+            }
+
+            //
+            const msgIDRaw = bodyData[bodyOffset] | (headData[headOffset] << 8);
+            const msgID = msgIDRaw - 32768; //
+
+            //
+            const daysRaw = headData[headOffset + 1] | (headData[headOffset + 2] << 8);
+            const dateStr = getDateString(baseDate1984, daysRaw + 1); //
+
+            //
+            const msRaw = (headData[headOffset + 3] | (headData[headOffset + 4] << 8)) |
+                ((headData[headOffset + 5] | (headData[headOffset + 6] << 8)) << 16);
+            const { time, ms } = formatTime(msRaw);
+
+            const event = (msgIDRaw > 32767) ? '+' : '-'; //
+
+            messages.push({ msgId: msgID, date: dateStr, time, ms, event });
+          }
+        }
+      } catch (e) {
+        console.error("解析 Message List 数据失败:", e, this.messageData);
+        return []; // 发生错误时返回空数组
+      }
+
+      return messages;
+    },
+
     paginatedMessages() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
-      return this.messages.slice(start, end);
+      // (修改) 使用 processedMessages
+      return this.processedMessages.slice(start, end);
     },
-    // 新增：根据状态计算表格空文本提示
+
     tableEmptyText() {
       if (this.isLoading) {
         return ' '; // 加载时显示加载动画，不显示文字
@@ -162,7 +270,9 @@ export default {
     /**
      * @vuese
      * (重写) 点击“获取信息”按钮时触发。
-     * 现在调用 App.vue 提供的 sendCommand 方法，通过 Web Serial API 发送获取 AD 数据的命令。
+     * 1. 发送命令 (0x25) 获取 AD Data.
+     * 2. 发送命令 (0x0C) 获取 Message Head.
+     * 3. 循环发送命令 (0x0D) 获取 Message Body，直到收到结束标记。
      */
     async onFetch() {
       if (!this.isSerialConnected) {
@@ -173,25 +283,63 @@ export default {
       this.$message.info('正在通过 Web Serial API 获取最新信息...');
 
       try {
-        // 调用 App.vue 传递过来的 sendCommand 方法
-        // 发送获取 AD 计算值的命令 (CMD_REQ_AD_CALC)
-        // sendCommand 会返回一个 Promise，在收到对应的响应 (0x24) 后 resolve
-        const responseFrame = await this.sendCommand({ commandDef: CMD_REQ_AD_CALC });
+        // 1. 获取 AD Data (更新左侧表格)
+        this.$message.info('获取 AD 计算值 (0x25)...');
+        // sendCommand 会触发 App.vue::processFrame 更新 initialAdData
+        // watch 会自动调用 this.processAdData
+        await this.sendCommand({ commandDef: CMD_REQ_AD_CALC });
 
-        // 收到响应后，responseFrame.payload 包含了新的 AD 数据
-        // processFrame 在 App.vue 中应该已经更新了 initialAdData prop，
-        // watch 会自动触发 processAdData。
-        // 所以这里理论上不需要手动调用 processAdData，除非 App.vue 没有更新 prop。
-        // 为保险起见，可以再次处理：
-        if (responseFrame && responseFrame.payload) {
-          this.processAdData(Array.from(responseFrame.payload));
-        } else {
-          this.$message.warning('获取信息命令成功，但未收到有效数据负载');
+        // 2. 获取 Message List Head (更新右侧表格)
+        this.$message.info('获取消息列表 Head (0x0C)...');
+        // sendCommand 会触发 App.vue::processFrame 更新 messageData.head
+        await this.sendCommand({ commandDef: CMD_REQ_MSG_HEAD });
+
+        // 3. 获取 Message List Body (循环)
+        this.$message.info('获取消息列表 Body (0x0D)...');
+        let keepFetchingBody = true;
+        let fetchCount = 0;
+        const maxFetches = 50; // 防止无限循环
+
+        while (keepFetchingBody && fetchCount < maxFetches) {
+          fetchCount++;
+          // sendCommand 会触发 App.vue::processFrame 更新 messageData.body
+          // (重要) App.vue::handleSendCommand 必须返回 responseFrame
+          const bodyFrame = await this.sendCommand({ commandDef: CMD_REQ_MSG_BODY });
+
+          // 循环终止逻辑，基于 new1Dlg.cpp
+          const bodyPayload = bodyFrame.payload;
+          if (!bodyPayload || bodyPayload.length < 5) {
+            this.$message.warning('消息体 payload 无效，停止获取');
+            keepFetchingBody = false;
+          } else {
+            // if (Connect_Telegram.Telegarm_Array[4] == 0) RX_Msg_End = true;
+            const endFlag = bodyPayload[4];
+            if (endFlag === 0) {
+              keepFetchingBody = false;
+              this.$message.info('消息列表 Body 接收完毕');
+            } else {
+              // (MsgList_ValidData[4] - 128)
+              // 额外检查：如果消息体数量为0，也停止
+              const msgNrBody = endFlag - 128;
+              if (msgNrBody <= 0) {
+                keepFetchingBody = false;
+                this.$message.info('消息列表 Body 报告无内容，停止');
+              } else {
+                // this.$message.info('消息列表未完，继续获取 (Body)...');
+                console.log('消息列表未完，继续获取 (Body)...');
+              }
+            }
+          }
         }
-        // this.$message.success('信息获取成功'); // processAdData 中已有提示
+
+        if (fetchCount >= maxFetches) {
+          this.$message.error('获取消息列表 Body 超时 (循环次数过多)');
+        }
+
+        this.$message.success('信息获取完毕');
 
       } catch (error) {
-        console.error('通过 Web Serial 获取或处理 AD 数据失败:', error);
+        console.error('通过 Web Serial 获取或处理数据失败:', error);
         this.$message.error(`获取信息失败: ${error.message}`);
         this.masterAdData = []; // 获取失败时清空
       } finally {
