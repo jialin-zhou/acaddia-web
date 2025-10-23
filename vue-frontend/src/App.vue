@@ -8,26 +8,26 @@
       <div class="header-actions">
         <el-button-group>
           <el-button
-            text
-            @click="openDialog('com')"
+              text
+              @click="openDialog('com')"
           >
             串口设置
           </el-button>
           <el-button
-            text
-            @click="openDialog('time')"
+              text
+              @click="openDialog('time')"
           >
             时间设置
           </el-button>
           <el-button
-            text
-            @click="openDialog('angle')"
+              text
+              @click="openDialog('angle')"
           >
             角度矢量
           </el-button>
           <el-button
-            text
-            @click="openDialog('dim')"
+              text
+              @click="openDialog('dim')"
           >
             标幺设置
           </el-button>
@@ -38,8 +38,8 @@
 
       <div class="connection-status">
         <el-tag
-          :type="isSerialConnected ? 'success' : 'danger'"
-          size="large"
+            :type="isSerialConnected ? 'success' : 'danger'"
+            size="large"
         >
           {{ serialStatus }}
         </el-tag>
@@ -48,13 +48,13 @@
 
     <el-container>
       <el-aside
-        width="220px"
-        class="main-aside"
+          width="220px"
+          class="main-aside"
       >
         <el-menu
-          :default-active="activeView"
-          class="main-menu"
-          @select="handleMenuSelect"
+            :default-active="activeView"
+            class="main-menu"
+            @select="handleMenuSelect"
         >
           <el-menu-item index="Main">
             主界面
@@ -83,41 +83,42 @@
       <el-main class="main-content">
         <KeepAlive>
           <component
-            :is="activeViewComponent"
-            :is-serial-connected="isSerialConnected"
-            :initial-ad-data="initialAdData"
-            :message-data="messageData"
-            :device-time-raw-data="deviceTimeRawData"
-            :current-serial-settings="currentSerialSettings"
-            :write-to-serial="writeToSerial"
-            :last-received-frame="lastReceivedFrame"
-            :send-command="sendCommand"
+              :is="activeViewComponent"
+              :is-serial-connected="isSerialConnected"
+              :initial-ad-data="initialAdData"
+              :message-data="messageData"
+              :device-time-raw-data="deviceTimeRawData"
+              :device-angle-raw-data="deviceAngleRawData"
+              :current-serial-settings="currentSerialSettings"
+              :write-to-serial="writeToSerial"
+              :last-received-frame="lastReceivedFrame"
+              :send-command="sendCommand"
           />
         </KeepAlive>
       </el-main>
     </el-container>
 
     <com-settings-dialog
-      v-model:visible="dialogVisible.com"
-      :is-connected="isSerialConnected"
-      :current-port="port"
-      @connect="handleSerialConnect"
-      @disconnect="handleSerialDisconnect"
+        v-model:visible="dialogVisible.com"
+        :is-connected="isSerialConnected"
+        :current-port="port"
+        @connect="handleSerialConnect"
+        @disconnect="handleSerialDisconnect"
     />
     <time-settings-dialog
-      v-model:visible="dialogVisible.time"
-      :device-time-raw-data="deviceTimeRawData"
-      @fetch-time="handleFetchTime"
+        v-model:visible="dialogVisible.time"
+        :device-time-raw-data="deviceTimeRawData"
+        @fetch-time="handleFetchTime"
     />
     <angle-vector-dialog
-      v-model:visible="dialogVisible.angle"
-      @apply="handleSetAngle"
-      @fetch="handleFetchAngle"
+        v-model:visible="dialogVisible.angle"
+        :device-angle-raw-data="deviceAngleRawData"
+        @fetch="handleFetchAngle"
     />
     <dim-settings-dialog
-      v-model:visible="dialogVisible.dim"
-      @confirm="handleSetDim"
-      @default="handleDefaultDim"
+        v-model:visible="dialogVisible.dim"
+        @confirm="handleSetDim"
+        @default="handleDefaultDim"
     />
   </el-container>
 </template>
@@ -147,7 +148,7 @@ import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打�
 const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 };
 const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 };
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
-const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 };
+const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 }; // 获取角度 (发送 2F, 响应 30)
 // Message List (用于主界面 MessageList 表格)
 const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 };
 const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 };
@@ -170,13 +171,11 @@ export default {
       serialPortName: '', // 用于显示
       initialAdData: null, // 存储连接时获取的 AD 数据
       // Message List (主界面)
-      messageData: {
-        head: null,
-        body: [],
-        timestamp: null
-      },
+      messageData: { head: null, body: [], timestamp: null },
       // 设备时间原始数据 (用于 TimeSettingsDialog)
       deviceTimeRawData: null,
+      // (新增) 设备角度原始数据 (用于 AngleVectorDialog)
+      deviceAngleRawData: null,
       currentSerialSettings: null, // 存储当前连接的设置
 
       // --- Web Serial API State ---
@@ -266,7 +265,7 @@ export default {
 
     /**
      * @vuese
-     * (无修改) 处理断开连接。
+     * (修改) 处理断开连接，增加 deviceAngleRawData 重置。
      */
     async handleSerialDisconnect(showSuccessMsg = true) {
       this.keepReading = false;
@@ -295,6 +294,7 @@ export default {
       this.currentSerialSettings = null;
       this.messageData = { head: null, body: [], timestamp: null };
       this.deviceTimeRawData = null;
+      this.deviceAngleRawData = null; // (新增) 重置设备角度数据
       this.commandQueue = [];
       this.isExecutingCommand = false;
       this.unpacker = new Unpacker();
@@ -357,14 +357,13 @@ export default {
 
     /**
      * @vuese
-     * (修改) 处理协议帧，修复 E5 ACK 处理逻辑。
+     * (修改) 处理协议帧，增加对角度响应 (0x30) 的处理。
      */
     async processFrame(frame) {
       if (frame.type === 'ack_e5') {
         console.log("Received E5 ACK");
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
-          // (修改) 恢复原始检查条件
           if (currentCommand.command.expectedResponseId === 0xE5) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected E5 ACK.`);
             clearTimeout(currentCommand.timeoutTimer);
@@ -421,6 +420,10 @@ export default {
             console.log("Updating deviceTimeRawData with received payload.");
             this.deviceTimeRawData = payloadArray;
             break;
+          case CMD_REQ_ANGLE.expectedResponseId: // (新增) 0x30
+            console.log("Updating deviceAngleRawData with received payload.");
+            this.deviceAngleRawData = payloadArray;
+            break;
           default:
             console.log(`Received data frame with unhandled ID: ${responseId}`);
         }
@@ -440,7 +443,7 @@ export default {
         console.log("ACAD command successful.");
         await this.sendCommand(CMD_REQ_AD_CALC);
         console.log("AD_CALC command successful.");
-        await this.sendCommand(CMD_REQ_ANGLE);
+        await this.sendCommand(CMD_REQ_ANGLE); // 初始序列已包含获取角度
         console.log("ANGLE command successful.");
         console.log("Initial sequence completed.");
       } catch (error) {
@@ -536,13 +539,7 @@ export default {
 
     /**
      * @vuese
-     * (移除) 处理来自 TimeSettingsDialog 的设置时间事件。
-     */
-    // async handleSetTime(payload) { ... } // 移除此方法
-
-    /**
-     * @vuese
-     * (无修改) 处理来自 TimeSettingsDialog 的获取时间事件。
+     * (无修改) 处理获取时间事件。
      */
     async handleFetchTime() {
       if (!this.isSerialConnected) {
@@ -551,16 +548,37 @@ export default {
       }
       this.$message.info('正在发送获取时间命令 (0x1D)...');
       try {
-        // (保持) 不需要 await，响应在 processFrame 中处理
         this.sendCommand(CMD_REQ_TIME);
       } catch (error) {
         console.error(`发送获取时间命令失败: ${error?.message || error}`);
       }
     },
 
+    /**
+     * @vuese
+     * (移除) 处理设置角度事件。
+     */
+    // handleSetAngle(form) { ... } // 移除此方法
+
+    /**
+     * @vuese
+     * (修改) 处理获取角度事件。
+     */
+    async handleFetchAngle() {
+      if (!this.isSerialConnected) {
+        this.$message.error('串口未连接');
+        return;
+      }
+      this.$message.info('正在发送获取角度命令 (0x2F)...');
+      try {
+        // (修改) 不需要 await，响应在 processFrame 中处理
+        this.sendCommand(CMD_REQ_ANGLE);
+      } catch (error) {
+        console.error(`发送获取角度命令失败: ${error?.message || error}`);
+      }
+    },
+
     // ... (其他对话框的处理方法保持不变) ...
-    handleSetAngle(form) { console.log("TODO: Implement handleSetAngle", form); this.$message.info("设置角度功能待实现"); },
-    handleFetchAngle() { console.log("TODO: Implement handleFetchAngle"); this.$message.info("获取角度功能待实现 (初始连接已获取)"); },
     handleSetDim(form) { console.log("TODO: Implement handleSetDim", form); this.$message.info("设置标幺功能待实现"); },
     handleDefaultDim() { console.log("TODO: Implement handleDefaultDim"); this.$message.info("恢复默认标幺功能待实现"); },
 
