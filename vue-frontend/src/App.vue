@@ -1,65 +1,124 @@
 <template>
   <el-container class="main-container">
     <el-header class="main-header">
-      <div class="title">Acaddia-Web 测控终端</div>
+      <div class="title">
+        Acaddia-Web 测控终端
+      </div>
 
       <div class="header-actions">
         <el-button-group>
-          <el-button text @click="openDialog('com')">串口设置</el-button>
-          <el-button text @click="openDialog('time')">时间设置</el-button>
-          <el-button text @click="openDialog('angle')">角度矢量</el-button>
-          <el-button text @click="openDialog('dim')">标幺设置</el-button>
+          <el-button
+            text
+            @click="openDialog('com')"
+          >
+            串口设置
+          </el-button>
+          <el-button
+            text
+            @click="openDialog('time')"
+          >
+            时间设置
+          </el-button>
+          <el-button
+            text
+            @click="openDialog('angle')"
+          >
+            角度矢量
+          </el-button>
+          <el-button
+            text
+            @click="openDialog('dim')"
+          >
+            标幺设置
+          </el-button>
         </el-button-group>
       </div>
 
       <div class="spacer" />
 
       <div class="connection-status">
-        <el-tag :type="isSerialConnected ? 'success' : 'danger'" size="large">
+        <el-tag
+          :type="isSerialConnected ? 'success' : 'danger'"
+          size="large"
+        >
           {{ serialStatus }}
         </el-tag>
       </div>
     </el-header>
 
     <el-container>
-      <el-aside width="220px" class="main-aside">
-        <el-menu :default-active="activeView" class="main-menu" @select="handleMenuSelect">
-          <el-menu-item index="Main">主界面</el-menu-item>
-          <el-menu-item index="DataParsing">串口数据收发</el-menu-item>
-          <el-menu-item index="Tqcs">同期参数</el-menu-item>
-          <el-menu-item index="AdParams">AD参数</el-menu-item>
-          <el-menu-item index="AdAdjust">通道校准</el-menu-item>
-          <el-menu-item index="Tqml">同期命令</el-menu-item>
-          <el-menu-item index="Message">通信报文</el-menu-item>
+      <el-aside
+        width="220px"
+        class="main-aside"
+      >
+        <el-menu
+          :default-active="activeView"
+          class="main-menu"
+          @select="handleMenuSelect"
+        >
+          <el-menu-item index="Main">
+            主界面
+          </el-menu-item>
+          <el-menu-item index="DataParsing">
+            串口数据收发
+          </el-menu-item>
+          <el-menu-item index="Tqcs">
+            同期参数
+          </el-menu-item>
+          <el-menu-item index="AdParams">
+            AD参数
+          </el-menu-item>
+          <el-menu-item index="AdAdjust">
+            通道校准
+          </el-menu-item>
+          <el-menu-item index="Tqml">
+            同期命令
+          </el-menu-item>
+          <el-menu-item index="Message">
+            通信报文
+          </el-menu-item>
         </el-menu>
       </el-aside>
 
       <el-main class="main-content">
         <KeepAlive>
           <component
-              :is="activeViewComponent"
-              :is-serial-connected="isSerialConnected"
-              :initial-ad-data="initialAdData"
-              :message-data="messageData"
-              :current-serial-settings="currentSerialSettings"
-              :write-to-serial="writeToSerial"
-              :last-received-frame="lastReceivedFrame"
-              @send-command="handleSendCommand"
+            :is="activeViewComponent"
+            :is-serial-connected="isSerialConnected"
+            :initial-ad-data="initialAdData"
+            :message-data="messageData"
+            :device-time-raw-data="deviceTimeRawData"
+            :current-serial-settings="currentSerialSettings"
+            :write-to-serial="writeToSerial"
+            :last-received-frame="lastReceivedFrame"
+            :send-command="sendCommand"
           />
         </KeepAlive>
       </el-main>
     </el-container>
 
     <com-settings-dialog
-        v-model:visible="dialogVisible.com"
-        :is-connected="isSerialConnected"
-        :current-port="port"
-        @connect="handleSerialConnect"
-        @disconnect="handleSerialDisconnect"
+      v-model:visible="dialogVisible.com"
+      :is-connected="isSerialConnected"
+      :current-port="port"
+      @connect="handleSerialConnect"
+      @disconnect="handleSerialDisconnect"
     />
-    <time-settings-dialog v-model:visible="dialogVisible.time" @set-time="handleSetTime" @fetch-time="handleFetchTime" />
-    <angle-vector-dialog v-model:visible="dialogVisible.angle" @apply="handleSetAngle" @fetch="handleFetchAngle" />
-    <dim-settings-dialog v-model:visible="dialogVisible.dim" @confirm="handleSetDim" @default="handleDefaultDim" />
+    <time-settings-dialog
+      v-model:visible="dialogVisible.time"
+      :device-time-raw-data="deviceTimeRawData"
+      @fetch-time="handleFetchTime"
+    />
+    <angle-vector-dialog
+      v-model:visible="dialogVisible.angle"
+      @apply="handleSetAngle"
+      @fetch="handleFetchAngle"
+    />
+    <dim-settings-dialog
+      v-model:visible="dialogVisible.dim"
+      @confirm="handleSetDim"
+      @default="handleDefaultDim"
+    />
   </el-container>
 </template>
 
@@ -84,21 +143,16 @@ import DimSettingsDialog from './components/DimSettingsDialog.vue';
 // Import Protocol Utils
 import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打包和解包工具
 
-// --- 命令定义 (参考 DeviceInteractionService.java 和 new1Dlg.h) ---
-// 注意: telegramNr 是发送命令中的 ID，expectedResponseId 是期望收到的响应帧中的 ID
+// --- 命令定义 ---
 const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 };
 const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 };
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
 const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 };
-// (新增) 命令用于 Message List (基于 Dlg_ZJM.cpp 和 new1Dlg.h)
-const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 }; // 对应 Msg_h_block_12, 响应 0x02
-const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 }; // 对应 Msg_block_13, 响应 0x03
-
-// [FIX] Comment out unused command definitions until methods are implemented
-// const CMD_SET_TIME = { stationAddr: 0, telegramNr: 0x1D, expectedResponseId: 0xE5 }; // 假设设置时间响应 E5
-// const CMD_REQ_TIME = { stationAddr: 0, telegramNr: 0x1C, expectedResponseId: 0x1C }; // 假设获取时间响应 0x1C
-// const CMD_SET_ANGLE = { stationAddr: 0, telegramNr: 0x2E, expectedResponseId: 0xE5 }; // 假设设置角度响应 E5
-// ... 其他命令定义
+// Message List (用于主界面 MessageList 表格)
+const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 };
+const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 };
+// 时间设置相关命令
+const CMD_REQ_TIME = { stationAddr: 0, telegramNr: 0x1D, expectedResponseId: 0x1C }; // 请求时间 (发送 1D, 响应 1C)
 
 
 export default {
@@ -115,24 +169,26 @@ export default {
       dialogVisible: { com: false, time: false, angle: false, dim: false /*, ... other dialogs */ },
       serialPortName: '', // 用于显示
       initialAdData: null, // 存储连接时获取的 AD 数据
-      // (新增) 存储 Message List 数据
+      // Message List (主界面)
       messageData: {
-        head: null, // 存储来自 0x02 的 payload
-        body: [],   // 存储来自 0x03 的 payload(s)
-        timestamp: null // 用于触发 computed prop 更新
+        head: null,
+        body: [],
+        timestamp: null
       },
+      // 设备时间原始数据 (用于 TimeSettingsDialog)
+      deviceTimeRawData: null,
       currentSerialSettings: null, // 存储当前连接的设置
 
       // --- Web Serial API State ---
-      port: null,       // SerialPort 对象
-      reader: null,     // ReadableStreamDefaultReader
-      writer: null,     // WritableStreamDefaultWriter
-      keepReading: false, // 控制读循环的标志
-      unpacker: new Unpacker(), // 协议解包器实例
-      lastReceivedFrame: null, // 存储最后收到的已解析帧 (用于传递给子组件)
-      // 用于命令序列的状态管理
-      commandQueue: [], // 要执行的命令队列 { command, resolve, reject, timeoutTimer }
-      isExecutingCommand: false, // 标记是否正在等待命令响应
+      port: null,
+      reader: null,
+      writer: null,
+      keepReading: false,
+      unpacker: new Unpacker(),
+      lastReceivedFrame: null,
+      // 命令队列
+      commandQueue: [],
+      isExecutingCommand: false,
     };
   },
   computed: {
@@ -157,6 +213,12 @@ export default {
       return '串口: 已断开';
     },
   },
+  // 添加 beforeUnmount 钩子以确保在组件卸载时断开连接
+  async beforeUnmount() {
+    if (this.isSerialConnected) {
+      await this.handleSerialDisconnect(false);
+    }
+  },
   methods: {
     handleMenuSelect(index) {
       this.activeView = index;
@@ -167,35 +229,30 @@ export default {
 
     /**
      * @vuese
-     * (重写) 处理来自 ComSettingsDialog 的连接事件。
-     * 存储 port 对象和设置，启动读循环，执行初始命令序列。
-     * @param {object} connectionInfo - 包含 port 和 settings 的对象。
+     * (无修改) 处理连接。
      */
     async handleSerialConnect({ port, settings }) {
       if (this.isConnected || !port) return;
 
       this.port = port;
       this.currentSerialSettings = settings;
-      this.serialPortName = `VID:${port.getInfo().usbVendorId?.toString(16)}, PID:${port.getInfo().usbProductId?.toString(16)}`; // 更新显示名称
+      this.serialPortName = `VID:${port.getInfo().usbVendorId?.toString(16)}, PID:${port.getInfo().usbProductId?.toString(16)}`;
 
       try {
-        // 获取写入器
         const writableStream = this.port.writable;
         if (!writableStream) throw new Error("Writable stream not available.");
         this.writer = writableStream.getWriter();
 
-        // 获取读取器并开始读循环
         const readableStream = this.port.readable;
         if (!readableStream) throw new Error("Readable stream not available.");
         this.reader = readableStream.getReader();
         this.keepReading = true;
-        this.readUntilClosed(); // 启动异步读循环
+        this.readUntilClosed();
 
         this.isSerialConnected = true;
-        this.dialogVisible.com = false; // 关闭对话框
+        this.dialogVisible.com = false;
         this.$message.success(`串口已连接`);
 
-        // 连接成功后，执行初始命令序列获取数据
         this.$message.info('正在执行初始命令序列...');
         await this.executeInitialSequence();
         this.$message.success('初始命令序列执行完毕');
@@ -203,78 +260,51 @@ export default {
       } catch (error) {
         console.error('连接后初始化读写器或执行命令失败:', error);
         this.$message.error(`连接后初始化失败: ${error.message}`);
-        await this.handleSerialDisconnect(false); // 尝试清理资源
+        await this.handleSerialDisconnect(false);
       }
     },
 
     /**
      * @vuese
-     * (重写) 处理断开连接事件。
-     * 停止读循环，释放读写器，关闭端口。
-     * @param {boolean} [showSuccessMsg=true] 是否显示成功断开的消息
+     * (无修改) 处理断开连接。
      */
     async handleSerialDisconnect(showSuccessMsg = true) {
-      this.keepReading = false; // 指示读循环停止
+      this.keepReading = false;
 
-      // 释放写入器
       if (this.writer) {
         try {
-          await this.writer.close(); // 或 writer.abort()
-        } catch (e) {
-          console.warn('关闭 writer 时出错:', e);
-        } finally {
-          this.writer = null;
-        }
+          await this.writer.close();
+        } catch (e) { console.warn('关闭/中止 writer 时出错:', e); }
+        finally { try { this.writer.releaseLock(); } catch(e) {/* ignore */} this.writer = null; }
       }
-
-      // 释放读取器
       if (this.reader) {
         try {
-          // 重要: 先取消读取操作，否则 close() 可能卡住
           await this.reader.cancel('Disconnecting');
-          this.reader.releaseLock();
-        } catch (e) {
-          console.warn('取消或释放 reader 时出错:', e);
-        } finally {
-          this.reader = null;
-        }
+        } catch (e) { console.warn('取消 reader 时出错:', e); }
+        finally { try { this.reader.releaseLock(); } catch(e) {/* ignore */} this.reader = null; }
       }
+      if (this.port && this.port.readable) {
+        try { await this.port.close(); }
+        catch (e) { console.error('关闭端口时出错:', e); }
+        finally { this.port = null; }
+      } else { this.port = null; }
 
-
-      // 关闭端口
-      if (this.port && this.port.readable) { // 检查端口是否仍可访问
-        try {
-          await this.port.close();
-        } catch (e) {
-          console.error('关闭端口时出错:', e);
-        } finally {
-          this.port = null;
-        }
-      } else {
-        this.port = null; // 确保 port 被重置
-      }
-
-
-      // 重置状态
       this.isSerialConnected = false;
       this.serialPortName = '';
       this.initialAdData = null;
       this.currentSerialSettings = null;
-      // (新增) 重置 Message List 数据
       this.messageData = { head: null, body: [], timestamp: null };
+      this.deviceTimeRawData = null;
       this.commandQueue = [];
       this.isExecutingCommand = false;
-      this.unpacker = new Unpacker(); // 重置解包器状态
+      this.unpacker = new Unpacker();
 
-      if (showSuccessMsg) {
-        this.$message.info('串口已断开');
-      }
+      if (showSuccessMsg) { this.$message.info('串口已断开'); }
     },
 
     /**
      * @vuese
-     * (新增) 向串口写入数据。
-     * @param {Uint8Array} data - 要写入的字节数据。
+     * (无修改) 向串口写入数据。
      */
     async writeToSerial(data) {
       if (!this.writer || !this.isSerialConnected) {
@@ -283,12 +313,10 @@ export default {
       }
       try {
         await this.writer.write(data);
-        // console.log('Data written:', data); // 调试日志
         return true;
       } catch (error) {
         console.error('写入串口失败:', error);
         this.$message.error(`写入失败: ${error.message}`);
-        // 发生写入错误时，可能需要断开连接
         await this.handleSerialDisconnect(false);
         return false;
       }
@@ -296,56 +324,32 @@ export default {
 
     /**
      * @vuese
-     * (修改) 异步读取串口数据直到断开连接。
-     * 处理收到的数据块，送入 Unpacker，处理解析结果。
+     * (无修改) 异步读取串口数据。
      */
     async readUntilClosed() {
       while (this.port?.readable && this.keepReading) {
         try {
-          // console.log("Attempting to read..."); // 调试
           const { value, done } = await this.reader.read();
-          // console.log("Read result:", { value, done }); // 调试
-
-          if (done) {
-            // 读取流已关闭 (例如端口被拔出或程序调用了 reader.cancel())
-            console.log("Reader stream closed.");
-            break; // 退出循环
-          }
-
+          if (done) break;
           if (value) {
-            // console.log('Received raw:', value); // 调试原始数据
-
-            // 将收到的数据块添加到解包器
             this.unpacker.addData(value);
-            // 尝试解包 (MODIFIED: unpacker 现在也返回 'junk' 类型)
             const frames = this.unpacker.unpack();
-            // console.log("Unpacked frames:", frames); // 调试
-
-            // (MODIFIED) 处理所有解析出的帧/ACK/Junk
             for (const frame of frames) {
-              // (MODIFIED) 始终更新 lastReceivedFrame，
-              // 以便 DataParsingView 可以显示 *所有* 收到的内容
               this.lastReceivedFrame = frame;
-
-              // (MODIFIED) 仅当帧是协议帧时，才调用 processFrame
-              // (防止 'junk' 数据污染 MainView 等)
               if (frame.type !== 'junk') {
-                this.processFrame(frame); // 调用帧处理逻辑
+                this.processFrame(frame);
               }
             }
           }
         } catch (error) {
-          // 读取时发生错误 (例如设备断开)
           console.error('读取串口时出错:', error);
           this.$message.error(`读取错误: ${error.message}`);
-          this.keepReading = false; // 停止读取循环
-          // 可以在这里触发自动断开逻辑
+          this.keepReading = false;
           await this.handleSerialDisconnect(false);
-          break; // 退出循环
+          break;
         }
       }
       console.log("Read loop finished.");
-      // 确保在循环结束后断开连接状态被正确设置
       if (this.isSerialConnected) {
         await this.handleSerialDisconnect(false);
       }
@@ -353,121 +357,101 @@ export default {
 
     /**
      * @vuese
-     * (修改) 处理从 Unpacker 解析出的单个帧或 ACK。
-     * (注意: 'junk' 类型的帧不会被发送到这里)
-     * @param {object} frame - 解析出的帧对象 ({ type: 'data'|'ack_e5', ... })。
+     * (修改) 处理协议帧，修复 E5 ACK 处理逻辑。
      */
     async processFrame(frame) {
-      // --- 可以在这里将收到的帧信息发送给 DataParsingView ---
-      // (已通过 lastReceivedFrame prop 和 DataParsingView.vue 中的 watch 实现)
-
       if (frame.type === 'ack_e5') {
-        // 处理 E5 ACK
         console.log("Received E5 ACK");
-        // 检查是否有命令在等待 E5 响应
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
+          // (修改) 恢复原始检查条件
           if (currentCommand.command.expectedResponseId === 0xE5) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected E5 ACK.`);
             clearTimeout(currentCommand.timeoutTimer);
-            currentCommand.resolve({ type: 'ack_e5' }); // 解决 Promise
-            this.commandQueue.shift(); // 移除已处理的命令
+            currentCommand.resolve({ type: 'ack_e5' });
+            this.commandQueue.shift();
             this.isExecutingCommand = false;
-            await this.executeNextCommand(); // 执行下一个命令
+            await this.executeNextCommand();
           } else {
             console.warn("Received unexpected E5 ACK while waiting for data frame.");
-            // 根据协议，可能需要忽略或视为错误
           }
         }
       } else if (frame.type === 'data') {
-        // 处理 68 ... 16 数据帧
         console.log(`Received data frame: Nr=${frame.telegramNr}, Payload length=${frame.payload.length}`);
+        await this.writeToSerial(packAck()); // 发送 A2
 
-        // 1. 发送 ACK (0xA2)
-        await this.writeToSerial(packAck());
-
-        // 2. 检查是否是当前等待的命令的响应
+        // 处理命令响应
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
           if (frame.telegramNr === currentCommand.command.expectedResponseId) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected response ${frame.telegramNr}.`);
-            clearTimeout(currentCommand.timeoutTimer); // 清除超时定时器
-            currentCommand.resolve(frame); // 使用解析出的帧对象解决 Promise
-            this.commandQueue.shift(); // 从队列中移除已完成的命令
-            this.isExecutingCommand = false; // 标记命令执行完成
-            // 触发执行队列中的下一个命令 (如果还有的话)
+            clearTimeout(currentCommand.timeoutTimer);
+            currentCommand.resolve(frame);
+            this.commandQueue.shift();
+            this.isExecutingCommand = false;
             await this.executeNextCommand();
           } else {
-            // 收到了数据帧，但 ID 与当前等待的不匹配
             console.warn(`Received unexpected data frame ${frame.telegramNr} while waiting for ${currentCommand.command.expectedResponseId}.`);
-            // 根据协议，可能需要忽略这个帧，或者取消当前命令并报错
           }
         } else {
-          // 收到了数据帧，但当前没有命令在等待响应 (可能是设备主动上报?)
           console.log("Received unsolicited data frame:", frame);
-          // 可根据 frame.telegramNr 处理不同的主动上报数据
         }
 
-        // 3. (修改) 特殊处理：根据 telegramNr 更新不同的数据
+        // --- 根据响应 ID 更新具体数据 ---
+        const responseId = frame.telegramNr;
+        const payloadArray = Array.from(frame.payload);
 
-        // AD 计算值 (ID 0x24) -> initialAdData
-        if (frame.telegramNr === CMD_REQ_AD_CALC.expectedResponseId) {
-          console.log("Updating initialAdData with received payload.");
-          // 将 Uint8Array 转换为普通的 number 数组，以便 Vue 正确处理
-          this.initialAdData = Array.from(frame.payload);
+        switch(responseId) {
+          case CMD_REQ_AD_CALC.expectedResponseId: // 0x24
+            console.log("Updating initialAdData with received payload.");
+            this.initialAdData = payloadArray;
+            break;
+          case CMD_REQ_MSG_HEAD.expectedResponseId: // 0x02
+            console.log("Updating messageData.head with received payload.");
+            this.messageData.head = payloadArray;
+            this.messageData.body = [];
+            this.messageData.timestamp = Date.now();
+            break;
+          case CMD_REQ_MSG_BODY.expectedResponseId: // 0x03
+            console.log("Updating messageData.body with received payload.");
+            this.messageData.body.push(...payloadArray);
+            this.messageData.timestamp = Date.now();
+            break;
+          case CMD_REQ_TIME.expectedResponseId: // 0x1C
+            console.log("Updating deviceTimeRawData with received payload.");
+            this.deviceTimeRawData = payloadArray;
+            break;
+          default:
+            console.log(`Received data frame with unhandled ID: ${responseId}`);
         }
-
-        // (新增) Message List Head (ID 0x02) -> messageData.head
-        else if (frame.telegramNr === CMD_REQ_MSG_HEAD.expectedResponseId) {
-          console.log("Updating messageData.head with received payload.");
-          this.messageData.head = Array.from(frame.payload);
-          this.messageData.body = []; // 收到新的 head 时，清空 body
-          this.messageData.timestamp = new Date().getTime(); // 触发更新
-        }
-
-        // (新增) Message List Body (ID 0x03) -> messageData.body
-        else if (frame.telegramNr === CMD_REQ_MSG_BODY.expectedResponseId) {
-          console.log("Updating messageData.body with received payload.");
-          // (基于 new1Dlg.cpp 中 Msg_Len 的逻辑，我们追加 payload)
-          this.messageData.body.push(...Array.from(frame.payload));
-          this.messageData.timestamp = new Date().getTime(); // 触发更新
-        }
-
       }
     },
 
     /**
      * @vuese
-     * (新增) 执行初始连接时的命令序列 (TQCS -> ACAD -> AD_CALC -> ANGLE)。
-     * 使用命令队列和 Promise 来确保按顺序执行并等待响应。
+     * (无修改) 执行初始连接命令序列。
      */
     async executeInitialSequence() {
       try {
         console.log("Executing initial sequence...");
-        await this.sendCommand(CMD_REQ_TQCS);       // 发送 TQCS 并等待 0x22
+        await this.sendCommand(CMD_REQ_TQCS);
         console.log("TQCS command successful.");
-        await this.sendCommand(CMD_REQ_ACAD);       // 发送 ACAD 并等待 0x20
+        await this.sendCommand(CMD_REQ_ACAD);
         console.log("ACAD command successful.");
-        await this.sendCommand(CMD_REQ_AD_CALC);    // 发送 AD_CALC 并等待 0x24 (这将更新 initialAdData)
+        await this.sendCommand(CMD_REQ_AD_CALC);
         console.log("AD_CALC command successful.");
-        await this.sendCommand(CMD_REQ_ANGLE);      // 发送 ANGLE 并等待 0x30
+        await this.sendCommand(CMD_REQ_ANGLE);
         console.log("ANGLE command successful.");
         console.log("Initial sequence completed.");
       } catch (error) {
         console.error("Error during initial command sequence:", error);
         this.$message.error(`初始命令序列失败: ${error.message || error}`);
-        // 可能需要断开连接
-        // await this.handleSerialDisconnect(false);
       }
     },
 
     /**
      * @vuese
-     * (新增) 将命令添加到队列，并返回一个 Promise，该 Promise 在收到预期响应或超时后解决/拒绝。
-     * @param {object} commandDef - 命令定义对象 (e.g., CMD_REQ_TQCS)。
-     * @param {Uint8Array} [payload=null] - 命令的可选负载数据。
-     * @param {number} [timeout=3000] - 等待响应的超时时间 (毫秒)。
-     * @returns {Promise<object>} A Promise resolving with the parsed response frame or rejecting on error/timeout.
+     * (无修改) 将命令加入队列。
      */
     sendCommand(commandDef, payload = null, timeout = 3000) {
       return new Promise((resolve, reject) => {
@@ -478,11 +462,9 @@ export default {
           reject: reject,
           timeoutTimer: setTimeout(() => {
             console.error(`Timeout waiting for response to command ${commandDef.telegramNr} (expected ${commandDef.expectedResponseId})`);
-            // 从队列中移除超时的命令
             const index = this.commandQueue.findIndex(task => task === commandTask);
             if (index > -1) this.commandQueue.splice(index, 1);
-            // 如果当前正在执行的是这个超时的命令，则标记为结束并尝试下一个
-            if (this.isExecutingCommand && this.commandQueue.length === 0) { // 可能需要更精确的检查
+            if (this.isExecutingCommand && this.commandQueue.length === 0) {
               this.isExecutingCommand = false;
               this.executeNextCommand();
             }
@@ -490,7 +472,6 @@ export default {
           }, timeout)
         };
         this.commandQueue.push(commandTask);
-        // 如果当前没有命令在执行，则立即开始执行队列中的第一个命令
         if (!this.isExecutingCommand) {
           this.executeNextCommand();
         }
@@ -499,116 +480,90 @@ export default {
 
     /**
      * @vuese
-     * (新增) 执行命令队列中的下一个命令。
+     * (无修改) 执行队列中的下一个命令。
      */
     async executeNextCommand() {
       if (this.isExecutingCommand || this.commandQueue.length === 0) {
-        return; // 如果正在执行或队列为空，则返回
+        return;
       }
-
-      this.isExecutingCommand = true; // 标记开始执行
-      const task = this.commandQueue[0]; // 获取队列中的第一个任务
+      this.isExecutingCommand = true;
+      const task = this.commandQueue[0];
 
       try {
         console.log(`Executing command ${task.command.telegramNr}, expecting ${task.command.expectedResponseId}`);
-        // 使用 pack 函数构建完整的命令帧
         const frameToSend = pack({
           stationAddr: task.command.stationAddr,
           telegramNr: task.command.telegramNr,
-          payload: task.payload || undefined // 如果 payload 为 null 则不传递
-          // funcCode1, funcCode2 可以使用 pack 中的默认值或在 commandDef 中指定
+          payload: task.payload || undefined
         });
-        // 发送命令
         const writeSuccess = await this.writeToSerial(frameToSend);
         if (!writeSuccess) {
-          // 写入失败时，清除超时，拒绝 Promise，并停止执行
           clearTimeout(task.timeoutTimer);
           task.reject(new Error('Failed to write command to serial port.'));
-          this.commandQueue.shift(); // 移除失败的命令
+          this.commandQueue.shift();
           this.isExecutingCommand = false;
-          // 停止后续命令还是尝试下一个？取决于策略，这里先停止
           this.commandQueue = []; // 清空队列
         }
-        // 写入成功后，等待 readUntilClosed 中的 processFrame 来处理响应并 resolve/reject Promise
       } catch (error) {
-        // 构建或发送命令时出错
         console.error(`Error executing command ${task.command.telegramNr}:`, error);
         clearTimeout(task.timeoutTimer);
         task.reject(error);
-        this.commandQueue.shift(); // 移除失败的命令
+        this.commandQueue.shift();
         this.isExecutingCommand = false;
-        await this.executeNextCommand(); // 尝试执行下一个
+        await this.executeNextCommand();
       }
     },
 
     /**
      * @vuese
-     * (修改) 处理来自子组件的通用发送命令请求。
-     * @param {object} event - 包含 commandDef, payload, timeout 的事件对象。
+     * (无修改) 处理通用发送命令请求。
      */
     async handleSendCommand({ commandDef, payload, timeout }) {
       if (!this.isSerialConnected) {
         this.$message.error('串口未连接');
-        // (新增) 抛出错误以便调用者捕获
         throw new Error('串口未连接');
       }
       try {
-        // (修改) 将 sendCommand 返回的 responseFrame 传递回去
         const responseFrame = await this.sendCommand(commandDef, payload, timeout);
-        // this.$message.success(`命令 ${commandDef.telegramNr} 执行成功`); // 暂时注释掉，避免过多消息
-        // console.log("Command response:", responseFrame);
-        // (新增) 将响应帧返回给调用者
         return responseFrame;
-
       } catch (error) {
-        this.$message.error(`命令 ${commandDef.telegramNr} 执行失败: ${error.message}`);
-        // (新增) 抛出错误以便调用者捕获
+        this.$message.error(`命令 ${commandDef.telegramNr} 执行失败: ${error?.message || error}`);
         throw error;
       }
     },
 
     // --- 处理来自特定对话框的事件 ---
-    handleSetTime(dateTimeString) {
-      console.log("TODO: Implement handleSetTime", dateTimeString);
-      // 1. 将 dateTimeString 转换为设备需要的字节格式 payload
-      // const payload = ...;
-      // 2. 发送命令
-      // this.handleSendCommand({ commandDef: CMD_SET_TIME, payload });
-      this.$message.info("设置时间功能待实现");
-    },
-    handleFetchTime() {
-      console.log("TODO: Implement handleFetchTime");
-      // this.handleSendCommand({ commandDef: CMD_REQ_TIME });
-      this.$message.info("获取时间功能待实现");
-    },
-    handleSetAngle(form) {
-      console.log("TODO: Implement handleSetAngle", form);
-      // 1. 将 form 数据转换为设备需要的字节格式 payload
-      // const payload = ...;
-      // 2. 发送命令
-      // this.handleSendCommand({ commandDef: CMD_SET_ANGLE, payload });
-      this.$message.info("设置角度功能待实现");
-    },
-    handleFetchAngle() {
-      console.log("TODO: Implement handleFetchAngle");
-      // this.handleSendCommand({ commandDef: CMD_REQ_ANGLE }); // 重复获取
-      this.$message.info("获取角度功能待实现 (初始连接已获取)");
-    },
-    handleSetDim(form) {
-      console.log("TODO: Implement handleSetDim", form);
-      this.$message.info("设置标幺功能待实现");
-    },
-    handleDefaultDim() {
-      console.log("TODO: Implement handleDefaultDim");
-      this.$message.info("恢复默认标幺功能待实现");
+
+    /**
+     * @vuese
+     * (移除) 处理来自 TimeSettingsDialog 的设置时间事件。
+     */
+    // async handleSetTime(payload) { ... } // 移除此方法
+
+    /**
+     * @vuese
+     * (无修改) 处理来自 TimeSettingsDialog 的获取时间事件。
+     */
+    async handleFetchTime() {
+      if (!this.isSerialConnected) {
+        this.$message.error('串口未连接');
+        return;
+      }
+      this.$message.info('正在发送获取时间命令 (0x1D)...');
+      try {
+        // (保持) 不需要 await，响应在 processFrame 中处理
+        this.sendCommand(CMD_REQ_TIME);
+      } catch (error) {
+        console.error(`发送获取时间命令失败: ${error?.message || error}`);
+      }
     },
 
-  },
-  // 添加 beforeUnmount 钩子以确保在组件卸载时断开连接
-  async beforeUnmount() {
-    if (this.isSerialConnected) {
-      await this.handleSerialDisconnect(false);
-    }
+    // ... (其他对话框的处理方法保持不变) ...
+    handleSetAngle(form) { console.log("TODO: Implement handleSetAngle", form); this.$message.info("设置角度功能待实现"); },
+    handleFetchAngle() { console.log("TODO: Implement handleFetchAngle"); this.$message.info("获取角度功能待实现 (初始连接已获取)"); },
+    handleSetDim(form) { console.log("TODO: Implement handleSetDim", form); this.$message.info("设置标幺功能待实现"); },
+    handleDefaultDim() { console.log("TODO: Implement handleDefaultDim"); this.$message.info("恢复默认标幺功能待实现"); },
+
   },
 };
 </script>
