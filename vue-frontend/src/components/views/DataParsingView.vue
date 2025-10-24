@@ -8,13 +8,14 @@
         </div>
       </template>
 
-      <div ref="serialLog" class="serial-log-display">
+      <!-- el-scrollbar 模板部分是正确的 -->
+      <el-scrollbar ref="serialLog" class="serial-log-display">
         <div v-for="(log, index) in serialLogs" :key="index" :class="log.type === 'in' ? 'log-in' : 'log-out'">
           <strong>{{ log.type === 'in' ? '← RECV:' : '→ SENT:' }}</strong>
           <span class="log-timestamp">{{ log.timestamp }}</span>
           <pre class="log-data">{{ log.data }}</pre>
         </div>
-      </div>
+      </el-scrollbar>
 
       <div class="serial-send-controls">
         <el-input
@@ -76,7 +77,6 @@ export default {
     return {
       serialLogs: [],
       dataToSend: '',
-      // interpretHexInput: true, // (移除) 不再需要
     };
   },
   watch: {
@@ -107,17 +107,23 @@ export default {
   methods: {
     addSerialLog(data, type) {
       this.serialLogs.push({ data, type, timestamp: getTimestamp() });
-      // 限制日志数量，防止内存占用过大
+      // 限制日志数量
       if (this.serialLogs.length > 200) {
         this.serialLogs.shift();
       }
-      // 自动滚动到日志底部
+
+      // [修改] 自动滚动到底部 (适配 el-scrollbar)
+      // 这部分逻辑是正确的
       this.$nextTick(() => {
-        const logEl = this.$refs.serialLog;
-        if (logEl) {
+        // this.$refs.serialLog 现在是 el-scrollbar 组件实例
+        const scrollbar = this.$refs.serialLog;
+        if (scrollbar && scrollbar.wrapRef) {
+          // scrollbar.wrapRef 是 el-scrollbar 内部真正滚动的那个 div 元素
+          const logEl = scrollbar.wrapRef;
           logEl.scrollTop = logEl.scrollHeight;
         }
       });
+      // [修改结束]
     },
 
     clearLog() {
@@ -184,17 +190,30 @@ export default {
 .box-card { margin-bottom: 0; flex-grow: 1; display: flex; flex-direction: column; } /* 让卡片填满空间 */
 .serial-io-card ::v-deep(.el-card__body) { flex-grow: 1; display: flex; flex-direction: column; padding: 15px; } /* 调整内边距 */
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+
+/* [关键修改] */
 .serial-log-display {
   flex-grow: 1; /* 占据大部分空间 */
   border: 1px solid #dcdfe6;
   border-radius: 4px;
   padding: 10px;
-  overflow-y: auto; /* 垂直滚动 */
+
   background-color: #fff; /* 白色背景 */
   margin-bottom: 15px; /* 与发送控件的间距 */
-  min-height: 200px; /* 最小高度 */
   font-size: 13px; /* 稍小字体 */
+
+  /* [移除] min-height: 200px; (这会导致 flex 布局计算错误) */
+  /* min-height: 200px; */
+
+  /* [添加] height: 0; (或 min-height: 0;)
+     这是强制 flex-grow 生效的标准方法，
+     它告诉 flex 容器该元素的基准高度为0，然后让 flex-grow 将其拉伸以填充可用空间。
+  */
+  height: 0;
 }
+/* [修改结束] */
+
+
 .log-in { color: #67C23A; /* Element Plus Success Green */ }
 .log-out { color: #409EFF; /* Element Plus Primary Blue */ }
 .log-timestamp {
@@ -211,6 +230,5 @@ export default {
 }
 .serial-send-controls { display: flex; align-items: center; flex-shrink: 0; /* 防止发送控件被压缩 */ }
 .send-input { flex-grow: 1; margin-right: 10px; }
-/* (移除) Checkbox 样式不再需要 */
-/* .send-checkbox { margin-right: 10px; } */
+
 </style>
