@@ -147,6 +147,8 @@ export default {
      * @param {number[]} rawData - 包含角度信息的字节数组 (来自 0x30 响应的 payload)。
      */
     parseDeviceAngleData(rawData) {
+      console.log("rawData");
+      console.log(rawData);
       // 辅助函数：从 payload 指定偏移量读取2字节小端数据并计算角度值
       const getValue = (offset) => {
         // (新增) 边界检查
