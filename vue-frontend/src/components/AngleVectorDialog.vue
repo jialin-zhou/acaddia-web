@@ -1,4 +1,5 @@
 <template>
+  <!-- 角度矢量设置对话框 -->
   <el-dialog
       v-model="dialogVisible"
       title="角度矢量设置"
@@ -11,11 +12,13 @@
         label-position="left"
     >
       <el-row :gutter="20">
+        <!-- Line 1 数据卡片 -->
         <el-col :span="12">
           <el-card
               shadow="never"
               header="Line 1"
           >
+            <!-- 循环渲染 Line 1 的输入框 -->
             <el-form-item
                 v-for="(label, key) in line1Labels"
                 :key="key"
@@ -30,11 +33,13 @@
           </el-card>
         </el-col>
 
+        <!-- Line 2 数据卡片 -->
         <el-col :span="12">
           <el-card
               shadow="never"
               header="Line 2"
           >
+            <!-- 循环渲染 Line 2 的输入框 -->
             <el-form-item
                 v-for="(label, key) in line2Labels"
                 :key="key"
@@ -50,6 +55,7 @@
         </el-col>
       </el-row>
 
+      <!-- ▲α (角度差) 输入框 -->
       <el-row
           justify="center"
           style="margin-top: 20px;"
@@ -66,12 +72,15 @@
       </el-row>
     </el-form>
 
+    <!-- 对话框底部操作栏 -->
     <template #footer>
       <span class="dialog-footer">
+        <!-- 获取角度按钮 -->
         <el-button @click="onFetch">
           获取角度
         </el-button>
         <div class="spacer" />
+        <!-- 退出按钮 -->
         <el-button @click="onCancel">
           退出
         </el-button>
@@ -84,6 +93,10 @@
 export default {
   name: 'AngleVectorDialog',
   props: {
+    /**
+     * @vuese
+     * 控制对话框是否显示，由父组件传入。
+     */
     visible: { type: Boolean, default: false },
     /**
      * @vuese
@@ -92,19 +105,32 @@ export default {
      */
     deviceAngleRawData: { type: Array, default: null },
   },
+  /**
+   * @vuese
+   * 定义组件触发的事件。
+   * update:visible: 用于 v-model 双向绑定。
+   * fetch: 通知父组件执行“获取角度”操作。
+   */
   emits: ['update:visible', 'fetch'],
   data() {
     return {
+      // 存储表单数据
       form: {
         line1: { ua: '0', ub: '0', uc: '0', ia: '0', ib: '0', ic: '0' },
         line2: { ua: '0', ub: '0', uc: '0', ia: '0', ib: '0', ic: '0' },
         deltaAlpha: '0'
       },
+      // Line 1 表单项标签定义
       line1Labels: { ua: 'UA', ub: 'UB', uc: 'UC', ia: 'IA', ib: 'IB', ic: 'IC' },
+      // Line 2 表单项标签定义
       line2Labels: { ua: 'UA', ub: 'UB', uc: 'UC', ia: 'IA', ib: 'IB', ic: 'IC' },
     };
   },
   computed: {
+    /**
+     * @vuese
+     * 用于 v-model 绑定 `visible` prop 的计算属性。
+     */
     dialogVisible: {
       get() { return this.visible; },
       set(value) { this.$emit('update:visible', value); }
@@ -114,6 +140,7 @@ export default {
     /**
      * @vuese
      * (新增) 监听来自 App.vue 的原始角度数据。
+     * 当数据更新且合法时，调用解析方法。
      */
     deviceAngleRawData(newData) {
       // (修改) 检查 payload 长度 >= 26 (根据 C++ 代码，需要读取到索引 25)
@@ -127,6 +154,7 @@ export default {
           this.resetForm(); // 解析失败则重置表单
         }
       } else if (newData) { // newData 存在但长度不足 26
+        // 数据存在但长度不足，发出警告
         console.warn("收到的设备角度数据长度不足 (需要 >= 26):", newData);
         this.$message.warning('收到的设备角度数据格式不正确'); // 现在这个消息只会在长度确实不足时显示
         this.resetForm();
@@ -134,9 +162,17 @@ export default {
     }
   },
   methods: {
+    /**
+     * @vuese
+     * 点击取消或关闭按钮时调用，关闭对话框。
+     */
     onCancel() {
       this.dialogVisible = false;
     },
+    /**
+     * @vuese
+     * 点击“获取角度”按钮时调用，通知父组件。
+     */
     onFetch() {
       this.$emit('fetch');
     },
@@ -147,29 +183,37 @@ export default {
      * @param {number[]} rawData - 包含角度信息的字节数组 (来自 0x30 响应的 payload)。
      */
     parseDeviceAngleData(rawData) {
-      console.log("rawData");
+      console.log("接收到的原始角度数据(payload):");
       console.log(rawData);
-      // 辅助函数：从 payload 指定偏移量读取2字节小端数据并计算角度值
+
+      /**
+       * 辅助函数：从 rawData 指定偏移量读取2字节小端数据并计算角度值。
+       * @param {number} offset - 字节数组中的偏移索引。
+       * @returns {string} - 格式化为两位小数的角度字符串。
+       */
       const getValue = (offset) => {
-        // (新增) 边界检查
+        // (新增) 边界检查，防止数组越界
         if (offset < 0 || offset + 1 >= rawData.length) {
-          console.error(`Angle parse error: Index out of bounds. Offset=${offset}, Length=${rawData.length}`);
+          console.error(`角度解析错误: 索引越界。 Offset=${offset}, Length=${rawData.length}`);
           throw new Error(`解析角度数据时索引越界 (offset=${offset})`);
-          // return 'ERR'; // 或者返回错误标记
         }
         const lowByte = rawData[offset];
         const highByte = rawData[offset + 1];
+
         // 确保是数字
         if (typeof lowByte !== 'number' || typeof highByte !== 'number') {
-          console.error(`Angle parse error: Invalid data type at offset ${offset}. low=${lowByte}, high=${highByte}`);
+          console.error(`角度解析错误: 在偏移 ${offset} 处数据类型无效。 low=${lowByte}, high=${highByte}`);
           throw new Error(`解析角度数据时遇到非数字类型 (offset=${offset})`);
-          // return 'ERR';
         }
+
+        // 组合小端数据 (低字节在前)
         const rawValue = lowByte | (highByte << 8);
-        return (rawValue / 100.0).toFixed(2); // 保留两位小数
+        // 根据协议，原始值除以100得到角度值，保留两位小数
+        return (rawValue / 100.0).toFixed(2);
       };
 
       // 提取数据 (payload 索引 = C++ ValidData 索引 - 4)
+      // C++ 索引从4开始，对应 payload 索引0
       this.form.line1.ua = getValue(0);  // C++ index 4
       this.form.line1.ub = getValue(2);  // C++ index 6
       this.form.line1.uc = getValue(4);  // C++ index 8
@@ -186,11 +230,11 @@ export default {
 
       this.form.deltaAlpha = getValue(24); // C++ index 28
 
-      console.log("Parsed device angles:", JSON.parse(JSON.stringify(this.form)));
+      console.log("解析后的设备角度:", JSON.parse(JSON.stringify(this.form)));
     },
     /**
      * @vuese
-     * (新增) 重置表单为初始值。
+     * (新增) 重置表单为初始值（全0）。
      */
     resetForm() {
       this.form = {
@@ -204,13 +248,16 @@ export default {
 </script>
 
 <style scoped>
+/* 底部按钮布局 */
 .dialog-footer {
   display: flex;
   width: 100%;
 }
+/* 弹性空白，用于将按钮推向两侧 */
 .spacer {
   flex-grow: 1;
 }
+/* 确保卡片高度一致 */
 .el-card {
   height: 100%;
 }
