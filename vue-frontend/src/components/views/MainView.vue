@@ -1,8 +1,8 @@
 <template>
   <div class="main-view">
     <el-row
-      :gutter="20"
-      class="main-content-row"
+        :gutter="20"
+        class="main-content-row"
     >
       <el-col :span="14">
         <el-card class="box-card">
@@ -16,24 +16,24 @@
             <div class="ad-container">
               <div class="ad-controls">
                 <el-checkbox-group
-                  v-model="displayOptions"
-                  class="checkbox-group-vertical"
+                    v-model="displayOptions"
+                    class="checkbox-group-vertical"
                 >
                   <el-checkbox
-                    label="line1"
-                    size="large"
+                      label="line1"
+                      size="large"
                   >
                     Line1
                   </el-checkbox>
                   <el-checkbox
-                    label="line2"
-                    size="large"
+                      label="line2"
+                      size="large"
                   >
                     Line2
                   </el-checkbox>
                   <el-checkbox
-                    label="dc"
-                    size="large"
+                      label="dc"
+                      size="large"
                   >
                     DC
                   </el-checkbox>
@@ -42,36 +42,36 @@
 
               <div class="ad-table-wrapper">
                 <el-table
-                  v-loading="isLoading"
-                  :data="filteredAdData"
-                  border
-                  size="small"
-                  element-loading-text="正在加载数据..."
-                  :empty-text="tableEmptyText"
+                    v-loading="isLoading"
+                    :data="filteredAdData"
+                    border
+                    size="small"
+                    element-loading-text="正在加载数据..."
+                    :empty-text="tableEmptyText"
                 >
                   <el-table-column
-                    prop="channel"
-                    label="Channel"
-                    width="80"
+                      prop="channel"
+                      label="Channel"
+                      width="80"
                   />
                   <el-table-column
-                    prop="showItem"
-                    label="ShowItem"
-                    width="100"
+                      prop="showItem"
+                      label="ShowItem"
+                      width="100"
                   />
                   <el-table-column
-                    prop="second"
-                    label="Second"
-                    width="150"
+                      prop="second"
+                      label="Second"
+                      width="150"
                   />
                   <el-table-column
-                    prop="percent"
-                    label="%"
-                    width="120"
+                      prop="percent"
+                      label="%"
+                      width="120"
                   />
                   <el-table-column
-                    prop="count"
-                    label="Count"
+                      prop="count"
+                      label="Count"
                   />
                 </el-table>
               </div>
@@ -80,20 +80,20 @@
             <div class="card-actions-footer">
               <el-button-group>
                 <el-button
-                  :disabled="!isSerialConnected || isLoading"
-                  @click="onFetch"
+                    :disabled="!isSerialConnected || isLoading"
+                    @click="onFetch"
                 >
                   获取信息
                 </el-button>
                 <el-button
-                  :disabled="isLoading"
-                  @click="onSave"
+                    :disabled="isLoading"
+                    @click="onSave"
                 >
                   保存参数
                 </el-button>
                 <el-button
-                  :disabled="isLoading"
-                  @click="onOpenFile"
+                    :disabled="isLoading"
+                    @click="onOpenFile"
                 >
                   打开文件
                 </el-button>
@@ -114,45 +114,45 @@
           <div class="msg-card-body-wrapper">
             <div class="msg-table-wrapper">
               <el-table
-                :data="paginatedMessages"
-                border
-                size="small"
-                height="100%"
+                  :data="paginatedMessages"
+                  border
+                  size="small"
+                  height="100%"
               >
                 <el-table-column
-                  prop="msgId"
-                  label="MsgID"
-                  width="80"
+                    prop="msgId"
+                    label="MsgID"
+                    width="80"
                 />
                 <el-table-column
-                  prop="date"
-                  label="Date"
-                  width="120"
+                    prop="date"
+                    label="Date"
+                    width="120"
                 />
                 <el-table-column
-                  prop="time"
-                  label="Time"
-                  width="100"
+                    prop="time"
+                    label="Time"
+                    width="100"
                 />
                 <el-table-column
-                  prop="ms"
-                  label="ms"
-                  width="70"
+                    prop="ms"
+                    label="ms"
+                    width="70"
                 />
                 <el-table-column
-                  prop="event"
-                  label="Event"
+                    prop="event"
+                    label="Event"
                 />
               </el-table>
             </div>
 
             <div class="pagination-footer">
               <el-pagination
-                v-model:current-page="currentPage"
-                v-model:page-size="pageSize"
-                layout="total, prev, pager, next"
-                :total="processedMessages.length"
-                @current-change="handleCurrentChange"
+                  v-model:current-page="currentPage"
+                  v-model:page-size="pageSize"
+                  layout="total, prev, pager, next"
+                  :total="processedMessages.length"
+                  @current-change="handleCurrentChange"
               />
             </div>
           </div>
@@ -178,10 +178,18 @@ export default {
     isSerialConnected: { type: Boolean, default: false },
     currentSerialSettings: { type: Object, default: null },
     initialAdData: { type: Array, default: null },
-    // messageData prop 仍然保留，但新的 onFetch 逻辑不会更新它
     messageData: { type: Object, default: null },
-    // (修改) 确认 sendCommand prop 已接收
-    sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") }
+    sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") },
+    /**
+     * @vuese
+     * [新增] 从 App.vue 传入的全局标幺基值 (16384 或 8192)。
+     */
+    puBaseValue: { type: Number, default: 16384 },
+    /**
+     * @vuese
+     * [新增] 从 App.vue 传入的电压显示模式 (0 或 1)。
+     */
+    puVoltageMode: { type: Number, default: 0 },
   },
   data() {
     return {
@@ -193,15 +201,21 @@ export default {
     };
   },
   computed: {
+    /**
+     * @vuese
+     * [修改] 将 filteredAdData 改为计算属性。
+     * 它现在依赖 masterAdData 和 displayOptions。
+     * masterAdData 本身会在 initialAdData, puBaseValue, puVoltageMode 变化时被 watcher 重新计算。
+     */
     filteredAdData() {
       if (!this.masterAdData || this.masterAdData.length === 0) return [];
+      // 过滤逻辑保持不变
       return this.masterAdData.filter(row => this.displayOptions.includes(row.type));
     },
 
     /**
      * @vuese
      * (无修改) 解析来自 App.vue 的 messageData prop (来自 0x02, 0x03 响应)。
-     * 注意：由于 onFetch 已修改，此计算属性在新流程下不会更新。
      */
     processedMessages() {
       // 依赖 timestamp 触发更新
@@ -293,13 +307,19 @@ export default {
         return []; // 发生错误时返回空数组
       }
 
+      // 按日期和时间降序排序
+      messages.sort((a, b) => {
+        const dateA = new Date(`${a.date}T${a.time}.${String(a.ms).padStart(3, '0')}`);
+        const dateB = new Date(`${b.date}T${b.time}.${String(b.ms).padStart(3, '0')}`);
+        return dateB - dateA; // 降序
+      });
+
       return messages;
     },
 
     paginatedMessages() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
-      // (修改) 使用 processedMessages (注意：数据源不再更新)
       return this.processedMessages.slice(start, end);
     },
 
@@ -316,21 +336,43 @@ export default {
   watch: {
     /**
      * @vuese
-     * (修改) 监视来自父组件的 initialAdData prop。
-     * 当 App.vue 更新此 prop 时，会触发数据处理以实现初始加载。
+     * 监视来自父组件的 initialAdData prop。
+     * 当 App.vue 更新此 prop 时，会触发数据处理。
      */
     initialAdData: {
       handler(newData) {
         if (newData && newData.length > 0) {
-          console.log("MainView received initialAdData via watcher:", newData); // 调试
-          // (修改) 恢复调用，用于处理初始连接时获取的数据
+          console.log("MainView received initialAdData via watcher:", newData);
           this.processAdData(newData);
         } else {
-          // 如果连接断开或初始数据为空，清空表格
           this.masterAdData = [];
         }
       },
-      // immediate: true // 保持移除 immediate
+      // immediate: true // 移除 immediate，避免在 pu props 未就绪时执行
+    },
+    /**
+     * @vuese
+     * [新增] 监视标幺基值变化，重新处理 AD 数据。
+     */
+    puBaseValue: {
+      handler() {
+        console.log("MainView puBaseValue changed, reprocessing AD data.");
+        if (this.initialAdData && this.initialAdData.length > 0) {
+          this.processAdData(this.initialAdData);
+        }
+      }
+    },
+    /**
+     * @vuese
+     * [新增] 监视电压显示模式变化，重新处理 AD 数据。
+     */
+    puVoltageMode: {
+      handler() {
+        console.log("MainView puVoltageMode changed, reprocessing AD data.");
+        if (this.initialAdData && this.initialAdData.length > 0) {
+          this.processAdData(this.initialAdData);
+        }
+      }
     },
     // (无修改) 监视连接状态，断开时清空数据
     isSerialConnected(newVal) {
@@ -346,18 +388,15 @@ export default {
   methods: {
     /**
      * @vuese
-     * (重写) 点击“获取信息”按钮时触发。
+     * 点击“获取信息”按钮时触发。
      * 实现用户描述的流程: 0x25 -> 0x2F -> 0x2F -> 0x31。
-     * 接收到的 AD 数据 (0x24) 不更新表格，仅打印日志和注释。
-     * 接收到的 Message 数据 (0x32) 打印日志和注释，不更新 Message List 表格。
      */
     async onFetch() {
       if (!this.isSerialConnected) {
         this.$message.warn('请先连接串口');
         return;
       }
-      // (修改) 增加检查 sendCommand 是否有效
-      if (typeof this.sendCommand !== 'function' || this.sendCommand === this.$props.sendCommand) {
+      if (typeof this.sendCommand !== 'function') {
         this.$message.error('内部错误: sendCommand 方法未正确传递');
         console.error("sendCommand prop is not a valid function:", this.sendCommand);
         return;
@@ -368,68 +407,27 @@ export default {
 
       try {
         // --- 执行用户指定的命令序列 ---
-
         // 1. 发送 0x25 (AD 计算值), 期望响应 0x24
         this.$message.info('1/4: 获取 AD 计算值 (0x25)...');
-        const frameAd = await this.sendCommand({ commandDef: CMD_REQ_AD_CALC });
-        if (frameAd && frameAd.type === 'data' && frameAd.telegramNr === CMD_REQ_AD_CALC.expectedResponseId) {
-          const adPayloadArray = Array.from(frameAd.payload);
-          console.log("Received AD Calc Data (0x24 Payload):", adPayloadArray);
-          // ------------------------------------------------------------------
-          // TODO: 用户要求暂不更新 AD 计算值表格。
-          //       如果需要更新，取消下面的注释即可调用处理函数:
-          // this.processAdData(adPayloadArray);
-          // ------------------------------------------------------------------
-          this.$message.info('AD 数据已收到 (暂不刷新表格)');
-        } else {
-          console.warn("Received unexpected response or ACK for AD Calc command:", frameAd);
-          // 可以选择抛出错误停止序列，或者继续执行
-          // throw new Error("获取 AD 计算值时收到意外响应");
-        }
+        await this.sendCommand({ commandDef: CMD_REQ_AD_CALC }); // App.vue 的 processFrame 会处理 0x24 并更新 initialAdData
 
         // 2. 发送 0x2F (角度矢量), 期望响应 0x30
         this.$message.info('2/4: 获取角度矢量 (0x2F)...');
-        const frameAngle1 = await this.sendCommand({ commandDef: CMD_REQ_ANGLE });
-        if (frameAngle1 && frameAngle1.type === 'data' && frameAngle1.telegramNr === CMD_REQ_ANGLE.expectedResponseId) {
-          console.log("Received Angle Data 1 (0x30 Payload):", Array.from(frameAngle1.payload));
-        } else {
-          console.warn("Received unexpected response or ACK for Angle command 1:", frameAngle1);
-        }
+        await this.sendCommand({ commandDef: CMD_REQ_ANGLE }); // App.vue 的 processFrame 会处理 0x30 并更新 deviceAngleRawData
 
         // 3. 再次发送 0x2F (角度矢量), 期望响应 0x30
         this.$message.info('3/4: 获取角度矢量 (再次发送 0x2F)...');
-        const frameAngle2 = await this.sendCommand({ commandDef: CMD_REQ_ANGLE });
-        if (frameAngle2 && frameAngle2.type === 'data' && frameAngle2.telegramNr === CMD_REQ_ANGLE.expectedResponseId) {
-          console.log("Received Angle Data 2 (0x30 Payload):", Array.from(frameAngle2.payload));
-        } else {
-          console.warn("Received unexpected response or ACK for Angle command 2:", frameAngle2);
-        }
+        await this.sendCommand({ commandDef: CMD_REQ_ANGLE }); // 同上
 
         // 4. 发送 0x31 (通信报文), 期望响应 0x32
         this.$message.info('4/4: 获取通信报文 (0x31)...');
-        const frameMessage = await this.sendCommand({ commandDef: CMD_REQ_MESSAGE });
-        if (frameMessage && frameMessage.type === 'data' && frameMessage.telegramNr === CMD_REQ_MESSAGE.expectedResponseId) {
-          const msgPayloadArray = Array.from(frameMessage.payload);
-          console.log("Received Message Data (0x32 Payload):", msgPayloadArray);
-          // ------------------------------------------------------------------
-          // TODO: 用户希望此数据显示在 Message List，但根据 C++ 代码分析，
-          //       主界面的 Message List 由 0x02/0x03 响应填充，且使用 processedMessages 计算属性。
-          //       响应 0x32 的数据结构很可能不同，需要单独的解析逻辑，
-          //       可能用于 "通信报文" 视图 (MessageView.vue)，而不是这里。
-          //       因此，当前 Message List 表格不会被此数据显示。
-          // ------------------------------------------------------------------
-          this.$message.info('通信报文数据已收到 (需单独解析，不填充当前 Message List)');
-        } else {
-          console.warn("Received unexpected response or ACK for Message command:", frameMessage);
-        }
+        await this.sendCommand({ commandDef: CMD_REQ_MESSAGE }); // App.vue 的 processFrame 会处理 0x32 (如果已添加逻辑)
 
         this.$message.success('获取信息序列执行完毕');
 
       } catch (error) {
         console.error('获取信息序列失败:', error);
-        // (修改) 使用更健壮的错误消息显示
         this.$message.error(`获取信息失败: ${error?.message || error}`);
-        // this.masterAdData = []; // 不需要清空，因为没有填充
       } finally {
         this.isLoading = false; // 结束加载
       }
@@ -437,8 +435,7 @@ export default {
 
     /**
      * @vuese
-     * (修改) 封装了处理原始AD数据 (number[]) 并更新 `masterAdData` 的逻辑。
-     * 现在用于处理初始加载的数据。
+     * 处理原始AD数据 (number[]) 并更新 `masterAdData` 的逻辑。
      * @param {number[]} rawData - 从设备返回的原始字节数组 (已转换为 number[])。
      */
     processAdData(rawData) {
@@ -447,9 +444,15 @@ export default {
         return;
       }
       try {
-        const config = this.getMockConfig();
+        // [修改] 不再使用 mock config，直接使用 props
+        // const config = this.getMockConfig();
+        const config = {
+          currentStyle: this.currentSerialSettings?.currentStyle ?? 1, // 需要从串口设置或AD参数获取，暂时假设为1
+          dimLineVotStyle: this.puVoltageMode,
+          dcViSelect: this.currentSerialSettings?.dcViSelect ?? Array(8).fill(1) // 需要从AD参数获取，暂时假设全为Current(1)
+        };
         this.masterAdData = this.calculateAdData(rawData, config);
-        this.$message.success('AD数据已处理并更新表格'); // 修改提示
+        // this.$message.success('AD数据已处理并更新表格'); // 频繁调用时可能干扰用户
       } catch (error) {
         console.error('解析AD数据失败:', error);
         this.$message.error(`解析AD数据失败: ${error.message}`);
@@ -459,38 +462,88 @@ export default {
 
     /**
      * @vuese
-     * (无修改) AD 数据计算核心逻辑。
+     * [修改] AD 数据计算核心逻辑，使用传入的标幺设置。
      */
     calculateAdData(rawData, config) {
+      // 从 config 获取设置，并提供默认值
       const { currentStyle = 1, dimLineVotStyle = 0, dcViSelect = Array(8).fill(1) } = config;
-      const DIM_PUBLIC = 16384.0;
+      // [修改] 使用 prop 中的 puBaseValue
+      const DIM_PUBLIC = parseFloat(this.puBaseValue); // 确保是浮点数
+
+      // --- 输入检查 ---
+      if (isNaN(DIM_PUBLIC) || DIM_PUBLIC <= 0) {
+        console.error("Invalid puBaseValue:", this.puBaseValue);
+        throw new Error("无效的标幺基值");
+      }
+      if (typeof dimLineVotStyle !== 'number' || (dimLineVotStyle !== 0 && dimLineVotStyle !== 1)) {
+        console.error("Invalid puVoltageMode:", this.puVoltageMode);
+        throw new Error("无效的电压标幺模式");
+      }
+      // ---(检查 currentStyle 和 dcViSelect 也可以添加)---
+
+
       const results = [];
-      const lineItemDefs = [ /* ... S 内容不变 ... */
-        { name: 'Ua',      unit: 'V',   multiplier: 57.74 }, { name: 'Ub',      unit: 'V',   multiplier: 57.74 }, { name: 'Uc',      unit: 'V',   multiplier: 57.74 },
-        { name: 'Uab',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 }, { name: 'Ubc',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 }, { name: 'Uca',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
-        { name: 'Ia',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 }, { name: 'Ib',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 }, { name: 'Ic',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
-        { name: 'P',       unit: 'W',   multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true }, { name: 'Q',       unit: 'Var', multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true }, { name: 'S',       unit: 'VA',  multiplier: currentStyle === 0 ? 865.5 : 173.1 },
-        { name: 'f',       unit: 'Hz',  multiplier: 50.0 }, { name: 'Cos phi', unit: '',    multiplier: 1.0, signed: true },
+      const lineItemDefs = [
+        { name: 'Ua',      unit: 'V',   multiplier: 57.74 },
+        { name: 'Ub',      unit: 'V',   multiplier: 57.74 },
+        { name: 'Uc',      unit: 'V',   multiplier: 57.74 },
+        // [修改] 使用 dimLineVotStyle (来自 puVoltageMode prop)
+        { name: 'Uab',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Ubc',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Uca',     unit: 'V',   multiplier: dimLineVotStyle === 1 ? 57.74 : 100.0 },
+        { name: 'Ia',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'Ib',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'Ic',      unit: 'A',   multiplier: currentStyle === 0 ? 5.0 : 1.0 },
+        { name: 'P',       unit: 'W',   multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true },
+        { name: 'Q',       unit: 'Var', multiplier: currentStyle === 0 ? 865.5 : 173.1, signed: true },
+        { name: 'S',       unit: 'VA',  multiplier: currentStyle === 0 ? 865.5 : 173.1 },
+        { name: 'f',       unit: 'Hz',  multiplier: 50.0 },
+        { name: 'Cos phi', unit: '',    multiplier: 1.0, signed: true },
       ];
-      const dcItemDefs = Array.from({ length: 8 }, (_, i) => ({ /* ... 内容不变 ... */
+      const dcItemDefs = Array.from({ length: 8 }, (_, i) => ({
         name: `DC${i + 1}`,
-        unit: dcViSelect[i] === 0 ? 'V' : 'mA',
-        multiplier: dcViSelect[i] === 0 ? 5.0 : 10.0,
+        // [修改] 确保 dcViSelect[i] 有效，提供默认值
+        unit: (dcViSelect[i] ?? 1) === 0 ? 'V' : 'mA',
+        multiplier: (dcViSelect[i] ?? 1) === 0 ? 5.0 : 10.0,
       }));
 
-      const processData = (channel, itemDefs, offset) => { /* ... 内容不变 ... */
+      const processData = (channel, itemDefs, offset) => {
         itemDefs.forEach((def, j) => {
           const dataIndex = offset + (j * 2);
           if (dataIndex + 1 >= rawData.length) { console.warn(`Data index out of bounds: index=${dataIndex}, length=${rawData.length}`); return; }
+
           let count = rawData[dataIndex] | (rawData[dataIndex + 1] << 8);
           let isNegative = false;
-          let calculationCount = count;
-          if (def.signed && count > 32767) { isNegative = true; calculationCount = (count ^ 0xFFFF) + 1; }
-          const baseValue = calculationCount / DIM_PUBLIC;
+          let calculationCount = count; // 用于计算的计数值
+
+          // 处理有符号数 (P, Q, Cos phi)
+          if (def.signed && count > 32767) {
+            isNegative = true;
+            calculationCount = (count ^ 0xFFFF) + 1; // 二补数转绝对值
+            // 如果 calculationCount 仍然是负数或零（理论上不应发生），修正它
+            if (calculationCount <= 0) {
+              console.warn(`Signed conversion resulted in non-positive value for count ${count}. Using 32768.`);
+              calculationCount = 32768; // 使用最大负数的绝对值作为近似
+            }
+          }
+
+          // [修改] 确保 calculationCount 是非负数才进行除法
+          const baseValue = calculationCount >= 0 ? (calculationCount / DIM_PUBLIC) : 0;
           const finalValue = baseValue * def.multiplier;
           const percent = baseValue * 100;
+
           const prefix = isNegative ? '-' : '';
-          results.push({ type: channel.toLowerCase().replace(' ', ''), channel: channel, showItem: def.name, second: `${prefix}${finalValue.toFixed(4)} ${def.unit}`.trim(), percent: `${prefix}${percent.toFixed(4)}%`, count: count, });
+
+          // 构造结果对象
+          results.push({
+            type: channel.toLowerCase().replace(' ', ''),
+            channel: channel,
+            showItem: def.name,
+            // [修改] 格式化时应用前缀
+            second: `${prefix}${finalValue.toFixed(4)} ${def.unit}`.trim(),
+            percent: `${prefix}${percent.toFixed(4)}%`,
+            count: count, // 显示原始计数值
+          });
         });
       };
 
@@ -498,14 +551,34 @@ export default {
       processData('DC',    dcItemDefs,   4);
       processData('Line1', lineItemDefs, 20);
       processData('Line2', lineItemDefs, 48);
+
+      // 排序结果 (可选，保持原有逻辑)
       const channelSortOrder = { 'Line1': 1, 'Line2': 2, 'DC': 3 };
-      results.sort((a, b) => { const orderA = channelSortOrder[a.channel] || 99; const orderB = channelSortOrder[b.channel] || 99; return orderA - orderB; });
+      results.sort((a, b) => {
+        const orderA = channelSortOrder[a.channel] || 99;
+        const orderB = channelSortOrder[b.channel] || 99;
+        if (orderA !== orderB) return orderA - orderB;
+        // 如果通道相同，可以按 ShowItem 排序 (可选)
+        const itemOrder = lineItemDefs.findIndex(def => def.name === a.showItem);
+        const itemOrderB = lineItemDefs.findIndex(def => def.name === b.showItem);
+        if (itemOrder !== -1 && itemOrderB !== -1) return itemOrder - itemOrderB;
+        // DC 的排序 (可选)
+        const dcOrderA = parseInt(a.showItem.replace('DC', '')) || 99;
+        const dcOrderB = parseInt(b.showItem.replace('DC', '')) || 99;
+        return dcOrderA - dcOrderB;
+      });
       return results;
     },
 
+
     /** @vuese (无修改) */
-    getMockConfig() { /* ... 内容不变 ... */
-      return { currentStyle: 1, dimLineVotStyle: 0, dcViSelect: [1, 1, 1, 1, 1, 1, 1, 1], };
+    getMockConfig() {
+      console.warn("getMockConfig is deprecated. Settings should come from props.");
+      return {
+        currentStyle: 1, // 假设 1A
+        dimLineVotStyle: 0, // 假设都显示 100%
+        dcViSelect: Array(8).fill(1) // 假设都是 Current
+      };
     },
 
     onSave() { this.$message.info('保存参数功能待实现'); },

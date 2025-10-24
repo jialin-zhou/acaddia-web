@@ -93,6 +93,8 @@
               :write-to-serial="writeToSerial"
               :last-received-frame="lastReceivedFrame"
               :send-command="sendCommand"
+              :pu-base-value="puBaseValue"
+              :pu-voltage-mode="puVoltageMode"
           />
         </KeepAlive>
       </el-main>
@@ -115,8 +117,11 @@
         :device-angle-raw-data="deviceAngleRawData"
         @fetch="handleFetchAngle"
     />
+    <!-- [修改] 传入当前标幺设置，并监听事件 -->
     <dim-settings-dialog
         v-model:visible="dialogVisible.dim"
+        :current-pu-base-value="puBaseValue"
+        :current-pu-voltage-mode="puVoltageMode"
         @confirm="handleSetDim"
         @default="handleDefaultDim"
     />
@@ -174,9 +179,13 @@ export default {
       messageData: { head: null, body: [], timestamp: null },
       // 设备时间原始数据 (用于 TimeSettingsDialog)
       deviceTimeRawData: null,
-      // (新增) 设备角度原始数据 (用于 AngleVectorDialog)
+      // 设备角度原始数据 (用于 AngleVectorDialog)
       deviceAngleRawData: null,
       currentSerialSettings: null, // 存储当前连接的设置
+
+      // --- [新增] 标幺设置状态 ---
+      puBaseValue: 16384, // 对应 Qt 的 DIM_public, 默认 4000H -> 16384
+      puVoltageMode: 0,   // 对应 Qt 的 DIM_Line_Vot_style, 默认 0 -> 都显示100%
 
       // --- Web Serial API State ---
       port: null,
@@ -228,7 +237,7 @@ export default {
 
     /**
      * @vuese
-     * (无修改) 处理连接。
+     * 处理连接。
      */
     async handleSerialConnect({ port, settings }) {
       if (this.isConnected || !port) return;
@@ -265,49 +274,78 @@ export default {
 
     /**
      * @vuese
-     * (修改) 处理断开连接，增加 deviceAngleRawData 重置。
+     * 处理断开连接。
      */
     async handleSerialDisconnect(showSuccessMsg = true) {
       this.keepReading = false;
 
       if (this.writer) {
         try {
-          await this.writer.close();
+          // [重要] 尝试中止正在进行的写入操作
+          await this.writer.abort('Disconnecting').catch(e => console.warn('Abort writer failed:', e));
+          // [修改] 先释放锁再关闭似乎更安全
+          try { this.writer.releaseLock(); } catch(e) {/* ignore */}
+          // await this.writer.close(); // 关闭流可能在某些情况下挂起
         } catch (e) { console.warn('关闭/中止 writer 时出错:', e); }
-        finally { try { this.writer.releaseLock(); } catch(e) {/* ignore */} this.writer = null; }
+        finally { this.writer = null; }
       }
       if (this.reader) {
         try {
-          await this.reader.cancel('Disconnecting');
-        } catch (e) { console.warn('取消 reader 时出错:', e); }
-        finally { try { this.reader.releaseLock(); } catch(e) {/* ignore */} this.reader = null; }
+          // 取消读取操作
+          await this.reader.cancel('Disconnecting').catch(e => console.warn('Cancel reader failed:', e));
+          try { this.reader.releaseLock(); } catch(e) {/* ignore */}
+        } catch (e) { console.warn('取消/释放 reader 时出错:', e); }
+        finally { this.reader = null; }
       }
-      if (this.port && this.port.readable) {
-        try { await this.port.close(); }
-        catch (e) { console.error('关闭端口时出错:', e); }
-        finally { this.port = null; }
-      } else { this.port = null; }
 
+      // [修改] 增加 port?.close() 调用，并捕获错误
+      if (this.port) {
+        try {
+          // 确保在关闭前所有操作已取消
+          await Promise.race([
+            new Promise(resolve => setTimeout(resolve, 500)), // 设置超时
+            (async () => {
+              // 再次确保读写器已取消/中止
+              if (this.writer) await this.writer.abort('Closing port').catch(()=>{});
+              if (this.reader) await this.reader.cancel('Closing port').catch(()=>{});
+            })()
+          ]);
+          await this.port.close();
+          console.log("Serial port closed.");
+        } catch (e) {
+          console.error('关闭串口时出错:', e);
+          // 根据错误类型可能需要特定处理，例如设备已拔出
+          if (e.name === 'NetworkError') {
+            console.warn('Port likely disconnected physically.');
+          }
+        } finally {
+          this.port = null;
+        }
+      }
+
+      // 重置状态
       this.isSerialConnected = false;
       this.serialPortName = '';
       this.initialAdData = null;
       this.currentSerialSettings = null;
       this.messageData = { head: null, body: [], timestamp: null };
       this.deviceTimeRawData = null;
-      this.deviceAngleRawData = null; // (新增) 重置设备角度数据
+      this.deviceAngleRawData = null;
       this.commandQueue = [];
       this.isExecutingCommand = false;
-      this.unpacker = new Unpacker();
+      this.unpacker = new Unpacker(); // 重置解包器状态
+      this.lastReceivedFrame = null; // 清空最后接收帧
 
       if (showSuccessMsg) { this.$message.info('串口已断开'); }
     },
 
     /**
      * @vuese
-     * (无修改) 向串口写入数据。
+     * 向串口写入数据。
      */
     async writeToSerial(data) {
       if (!this.writer || !this.isSerialConnected) {
+        console.warn('Attempted to write but writer is null or port disconnected.');
         this.$message.error('写入失败：串口未连接或写入器无效');
         return false;
       }
@@ -317,6 +355,7 @@ export default {
       } catch (error) {
         console.error('写入串口失败:', error);
         this.$message.error(`写入失败: ${error.message}`);
+        // 写入失败通常意味着连接有问题，尝试断开
         await this.handleSerialDisconnect(false);
         return false;
       }
@@ -324,32 +363,50 @@ export default {
 
     /**
      * @vuese
-     * (无修改) 异步读取串口数据。
+     * 异步读取串口数据。
      */
     async readUntilClosed() {
-      while (this.port?.readable && this.keepReading) {
+      // 增加检查，确保 reader 存在
+      while (this.port?.readable && this.reader && this.keepReading) {
         try {
           const { value, done } = await this.reader.read();
-          if (done) break;
-          if (value) {
+          if (done) {
+            console.log("Reader stream closed.");
+            break; // 读取器已关闭
+          }
+          if (value && value.length > 0) { // 确保 value 非空
             this.unpacker.addData(value);
             const frames = this.unpacker.unpack();
-            for (const frame of frames) {
-              this.lastReceivedFrame = frame;
-              if (frame.type !== 'junk') {
-                this.processFrame(frame);
+            if (frames.length > 0) { // 仅在解出帧时处理
+              for (const frame of frames) {
+                this.lastReceivedFrame = frame; // 更新最后接收帧（包括 junk）
+                if (frame.type !== 'junk') {
+                  await this.processFrame(frame); // 处理有效帧
+                } else {
+                  console.log("Received junk data:", frame.raw);
+                }
               }
             }
           }
         } catch (error) {
-          console.error('读取串口时出错:', error);
-          this.$message.error(`读取错误: ${error.message}`);
-          this.keepReading = false;
-          await this.handleSerialDisconnect(false);
-          break;
+          // 根据错误类型判断是否是用户取消或设备断开
+          if (error.name === 'AbortError' || error.message.includes('cancel')) {
+            console.log('Reading aborted:', error.message);
+          } else if (error.name === 'NetworkError') {
+            console.error('Device disconnected during read:', error);
+            this.$message.error('设备已断开连接');
+          } else {
+            console.error('读取串口时发生未知错误:', error);
+            this.$message.error(`读取错误: ${error.message}`);
+          }
+          this.keepReading = false; // 发生任何错误都停止读取
+          // [修改] 不再立即断开，让 handleSerialDisconnect 处理
+          // await this.handleSerialDisconnect(false);
+          break; // 退出循环
         }
       }
-      console.log("Read loop finished.");
+      console.log("Read loop finished or exited due to error/disconnect.");
+      // [修改] 如果循环结束但仍处于连接状态（例如 done=true），则执行断开
       if (this.isSerialConnected) {
         await this.handleSerialDisconnect(false);
       }
@@ -357,7 +414,7 @@ export default {
 
     /**
      * @vuese
-     * (修改) 处理协议帧，增加对角度响应 (0x30) 的处理。
+     * 处理协议帧。
      */
     async processFrame(frame) {
       if (frame.type === 'ack_e5') {
@@ -373,33 +430,28 @@ export default {
             await this.executeNextCommand();
           } else {
             console.warn("Received unexpected E5 ACK while waiting for data frame.");
+            // 不处理意外的 ACK，继续等待预期响应
           }
+        } else {
+          console.log("Received unsolicited E5 ACK."); // 收到未请求的 E5
         }
       } else if (frame.type === 'data') {
         console.log(`Received data frame: Nr=${frame.telegramNr}, Payload length=${frame.payload.length}`);
-        await this.writeToSerial(packAck()); // 发送 A2
 
-        // 处理命令响应
-        if (this.isExecutingCommand && this.commandQueue.length > 0) {
-          const currentCommand = this.commandQueue[0];
-          if (frame.telegramNr === currentCommand.command.expectedResponseId) {
-            console.log(`Command ${currentCommand.command.telegramNr} received expected response ${frame.telegramNr}.`);
-            clearTimeout(currentCommand.timeoutTimer);
-            currentCommand.resolve(frame);
-            this.commandQueue.shift();
-            this.isExecutingCommand = false;
-            await this.executeNextCommand();
-          } else {
-            console.warn(`Received unexpected data frame ${frame.telegramNr} while waiting for ${currentCommand.command.expectedResponseId}.`);
-          }
-        } else {
-          console.log("Received unsolicited data frame:", frame);
+        // 发送 A2 (Master ACK)
+        const ackSuccess = await this.writeToSerial(packAck());
+        if (!ackSuccess) {
+          console.error("Failed to send A2 ACK.");
+          // ACK 发送失败可能表示连接问题，可以考虑断开
+          // await this.handleSerialDisconnect(false);
+          return; // 停止处理此帧
         }
 
-        // --- 根据响应 ID 更新具体数据 ---
-        const responseId = frame.telegramNr;
-        const payloadArray = Array.from(frame.payload);
+        const payloadArray = Array.from(frame.payload); // 转换一次即可
 
+        // --- 根据响应 ID 更新具体数据 ---
+        // 注意：将数据更新移到命令响应处理之前，确保数据总是被更新，即使是意外帧
+        const responseId = frame.telegramNr;
         switch(responseId) {
           case CMD_REQ_AD_CALC.expectedResponseId: // 0x24
             console.log("Updating initialAdData with received payload.");
@@ -408,73 +460,127 @@ export default {
           case CMD_REQ_MSG_HEAD.expectedResponseId: // 0x02
             console.log("Updating messageData.head with received payload.");
             this.messageData.head = payloadArray;
-            this.messageData.body = [];
+            this.messageData.body = []; // 清空 body
             this.messageData.timestamp = Date.now();
             break;
           case CMD_REQ_MSG_BODY.expectedResponseId: // 0x03
             console.log("Updating messageData.body with received payload.");
-            this.messageData.body.push(...payloadArray);
-            this.messageData.timestamp = Date.now();
+            // 检查 head 是否存在，防止孤立的 body 帧
+            if (this.messageData.head) {
+              this.messageData.body.push(...payloadArray);
+              this.messageData.timestamp = Date.now();
+            } else {
+              console.warn("Received message body frame (0x03) without preceding head frame (0x02).");
+            }
             break;
           case CMD_REQ_TIME.expectedResponseId: // 0x1C
             console.log("Updating deviceTimeRawData with received payload.");
             this.deviceTimeRawData = payloadArray;
             break;
-          case CMD_REQ_ANGLE.expectedResponseId: // (新增) 0x30
+          case CMD_REQ_ANGLE.expectedResponseId: // 0x30
             console.log("Updating deviceAngleRawData with received payload.");
             this.deviceAngleRawData = payloadArray;
             break;
+            // [添加] 处理 0x32 (通信报文响应) - 可选，取决于 MessageView 是否需要
+            // case 0x32:
+            //   console.log("Received Message Data (0x32), potentially for MessageView:", payloadArray);
+            //   // this.someOtherDataForMessageView = payloadArray; // 需要定义相应 data 属性
+            //   break;
           default:
             console.log(`Received data frame with unhandled ID: ${responseId}`);
+        }
+
+        // 处理命令响应
+        if (this.isExecutingCommand && this.commandQueue.length > 0) {
+          const currentCommand = this.commandQueue[0];
+          if (frame.telegramNr === currentCommand.command.expectedResponseId) {
+            console.log(`Command ${currentCommand.command.telegramNr} received expected response ${frame.telegramNr}.`);
+            clearTimeout(currentCommand.timeoutTimer); // 清除超时定时器
+            currentCommand.resolve(frame); // 用收到的帧解决 Promise
+            this.commandQueue.shift(); // 从队列移除已完成的命令
+            this.isExecutingCommand = false; // 标记命令执行结束
+            await this.executeNextCommand(); // 尝试执行下一个命令
+          } else {
+            console.warn(`Received unexpected data frame ${frame.telegramNr} while waiting for ${currentCommand.command.expectedResponseId}.`);
+            // 不解决 Promise，让它超时或等待正确的响应
+          }
+        } else {
+          console.log("Received unsolicited data frame (not waiting for specific response):", frame);
+          // 可以根据需要处理这些未请求的数据帧
         }
       }
     },
 
+
     /**
      * @vuese
-     * (无修改) 执行初始连接命令序列。
+     * 执行初始连接命令序列。
      */
     async executeInitialSequence() {
       try {
         console.log("Executing initial sequence...");
-        await this.sendCommand(CMD_REQ_TQCS);
-        console.log("TQCS command successful.");
-        await this.sendCommand(CMD_REQ_ACAD);
-        console.log("ACAD command successful.");
-        await this.sendCommand(CMD_REQ_AD_CALC);
-        console.log("AD_CALC command successful.");
-        await this.sendCommand(CMD_REQ_ANGLE); // 初始序列已包含获取角度
-        console.log("ANGLE command successful.");
-        console.log("Initial sequence completed.");
+        // [修改] 移除 await，让 sendCommand 顺序加入队列
+        this.sendCommand(CMD_REQ_TQCS);
+        this.sendCommand(CMD_REQ_ACAD);
+        this.sendCommand(CMD_REQ_AD_CALC);
+        this.sendCommand(CMD_REQ_ANGLE);
+        console.log("Initial sequence commands queued.");
+        // 注意：这里不再等待所有命令完成，命令将在后台按顺序执行
       } catch (error) {
-        console.error("Error during initial command sequence:", error);
-        this.$message.error(`初始命令序列失败: ${error.message || error}`);
+        // 这个 catch 块不太可能被触发，因为 sendCommand 现在不直接抛错
+        console.error("Error queuing initial command sequence:", error);
+        this.$message.error(`初始命令序列排队失败: ${error.message || error}`);
       }
     },
 
+
     /**
      * @vuese
-     * (无修改) 将命令加入队列。
+     * 将命令加入队列。
      */
     sendCommand(commandDef, payload = null, timeout = 3000) {
+      // [修改] 确保返回 Promise
       return new Promise((resolve, reject) => {
+        // 检查串口连接状态
+        if (!this.isSerialConnected) {
+          const errorMsg = '无法发送命令：串口未连接';
+          console.error(errorMsg);
+          this.$message.error(errorMsg);
+          return reject(new Error(errorMsg)); // 直接拒绝 Promise
+        }
+
         const commandTask = {
           command: commandDef,
           payload: payload,
           resolve: resolve,
           reject: reject,
-          timeoutTimer: setTimeout(() => {
-            console.error(`Timeout waiting for response to command ${commandDef.telegramNr} (expected ${commandDef.expectedResponseId})`);
-            const index = this.commandQueue.findIndex(task => task === commandTask);
-            if (index > -1) this.commandQueue.splice(index, 1);
-            if (this.isExecutingCommand && this.commandQueue.length === 0) {
-              this.isExecutingCommand = false;
-              this.executeNextCommand();
-            }
-            reject(new Error(`Timeout waiting for response ID ${commandDef.expectedResponseId}`));
-          }, timeout)
+          timeoutTimer: null // 初始化 timeoutTimer
         };
-        this.commandQueue.push(commandTask);
+
+        // 设置超时定时器
+        commandTask.timeoutTimer = setTimeout(() => {
+          console.error(`Timeout waiting for response to command ${commandDef.telegramNr} (expected ${commandDef.expectedResponseId})`);
+          const index = this.commandQueue.indexOf(commandTask); // 使用 indexOf 查找
+          if (index > -1) {
+            this.commandQueue.splice(index, 1); // 从队列中移除超时任务
+          }
+          // [修改] 检查当前执行的任务是否是超时的任务
+          if (this.isExecutingCommand && this.commandQueue.length > 0 && this.commandQueue[0] === commandTask) {
+            this.isExecutingCommand = false; // 如果是，则允许下一个命令执行
+            this.executeNextCommand();
+          } else if (!this.isExecutingCommand && this.commandQueue.length > 0) {
+            // 如果当前没有命令在执行，且队列不为空（意味着超时的是非队首任务，理论上不应发生）
+            this.executeNextCommand(); // 尝试启动下一个
+          }
+          // [修改] 确保 reject 被调用
+          commandTask.reject(new Error(`Timeout waiting for response ID ${commandDef.expectedResponseId}`));
+        }, timeout);
+
+
+        this.commandQueue.push(commandTask); // 加入队列
+        console.log(`Command ${commandDef.telegramNr} queued. Queue length: ${this.commandQueue.length}`); // 调试日志
+
+        // 如果当前没有命令在执行，则启动执行流程
         if (!this.isExecutingCommand) {
           this.executeNextCommand();
         }
@@ -483,14 +589,24 @@ export default {
 
     /**
      * @vuese
-     * (无修改) 执行队列中的下一个命令。
+     * 执行队列中的下一个命令。
      */
     async executeNextCommand() {
-      if (this.isExecutingCommand || this.commandQueue.length === 0) {
-        return;
+      if (this.isExecutingCommand || this.commandQueue.length === 0 || !this.isSerialConnected) {
+        if (this.commandQueue.length > 0 && !this.isSerialConnected) {
+          console.warn("Cannot execute next command: Serial port disconnected. Clearing queue.");
+          // 清空队列并拒绝所有待处理的 Promise
+          this.commandQueue.forEach(task => {
+            clearTimeout(task.timeoutTimer);
+            task.reject(new Error("Serial port disconnected"));
+          });
+          this.commandQueue = [];
+        }
+        return; // 如果正在执行、队列为空或未连接，则不执行
       }
-      this.isExecutingCommand = true;
-      const task = this.commandQueue[0];
+
+      this.isExecutingCommand = true; // 标记开始执行
+      const task = this.commandQueue[0]; // 获取队首任务
 
       try {
         console.log(`Executing command ${task.command.telegramNr}, expecting ${task.command.expectedResponseId}`);
@@ -499,88 +615,118 @@ export default {
           telegramNr: task.command.telegramNr,
           payload: task.payload || undefined
         });
-        const writeSuccess = await this.writeToSerial(frameToSend);
-        if (!writeSuccess) {
+
+        // 异步写入，不阻塞后续逻辑
+        this.writeToSerial(frameToSend).then(writeSuccess => {
+          if (!writeSuccess) {
+            console.error(`Failed to write command ${task.command.telegramNr} to serial port.`);
+            clearTimeout(task.timeoutTimer);
+            task.reject(new Error(`Failed to write command ${task.command.telegramNr}`));
+            this.commandQueue.shift(); // 移除失败的任务
+            this.isExecutingCommand = false; // 标记执行结束
+            this.executeNextCommand(); // 尝试下一个
+          } else {
+            console.log(`Command ${task.command.telegramNr} sent successfully.`);
+            // 发送成功，等待 processFrame 处理响应或超时
+          }
+        }).catch(error => {
+          // writeToSerial 内部的 catch 应该已经处理了错误和断开
+          console.error(`Unexpected error during writeToSerial promise for command ${task.command.telegramNr}:`, error);
           clearTimeout(task.timeoutTimer);
-          task.reject(new Error('Failed to write command to serial port.'));
+          task.reject(error);
           this.commandQueue.shift();
           this.isExecutingCommand = false;
-          this.commandQueue = []; // 清空队列
-        }
-      } catch (error) {
-        console.error(`Error executing command ${task.command.telegramNr}:`, error);
+          this.executeNextCommand(); // 尝试下一个
+        });
+
+      } catch (packError) { // 捕获 pack 函数可能抛出的错误
+        console.error(`Error packing command ${task.command.telegramNr}:`, packError);
         clearTimeout(task.timeoutTimer);
-        task.reject(error);
-        this.commandQueue.shift();
+        task.reject(packError);
+        this.commandQueue.shift(); // 移除打包失败的任务
         this.isExecutingCommand = false;
-        await this.executeNextCommand();
+        await this.executeNextCommand(); // 尝试执行下一个命令
       }
     },
 
+
     /**
      * @vuese
-     * (无修改) 处理通用发送命令请求。
+     * 处理通用发送命令请求 (由子组件调用)。
      */
     async handleSendCommand({ commandDef, payload, timeout }) {
-      if (!this.isSerialConnected) {
-        this.$message.error('串口未连接');
-        throw new Error('串口未连接');
-      }
+      // 不再检查 isSerialConnected，让 sendCommand 内部处理
       try {
+        // [修改] 直接调用 sendCommand 并返回其 Promise
         const responseFrame = await this.sendCommand(commandDef, payload, timeout);
-        return responseFrame;
+        return responseFrame; // 返回从 processFrame 收到的响应帧
       } catch (error) {
-        this.$message.error(`命令 ${commandDef.telegramNr} 执行失败: ${error?.message || error}`);
-        throw error;
+        // sendCommand 的 Promise 被拒绝时会进入这里
+        // this.$message.error(`命令 ${commandDef.telegramNr} 执行失败: ${error?.message || error}`); // sendCommand 内部或调用者应处理消息
+        console.error(`handleSendCommand caught error for command ${commandDef.telegramNr}:`, error);
+        throw error; // 将错误重新抛出，让调用者处理
       }
     },
+
 
     // --- 处理来自特定对话框的事件 ---
 
     /**
      * @vuese
-     * (无修改) 处理获取时间事件。
+     * 处理获取时间事件。
      */
     async handleFetchTime() {
-      if (!this.isSerialConnected) {
-        this.$message.error('串口未连接');
-        return;
-      }
+      // [修改] 使用 sendCommand，错误处理已包含
       this.$message.info('正在发送获取时间命令 (0x1D)...');
       try {
+        // 不需要 await，响应在 processFrame 中处理并更新 data
         this.sendCommand(CMD_REQ_TIME);
       } catch (error) {
+        // sendCommand 内部会处理错误消息，这里只记录日志
         console.error(`发送获取时间命令失败: ${error?.message || error}`);
       }
     },
 
     /**
      * @vuese
-     * (移除) 处理设置角度事件。
-     */
-    // handleSetAngle(form) { ... } // 移除此方法
-
-    /**
-     * @vuese
-     * (修改) 处理获取角度事件。
+     * 处理获取角度事件。
      */
     async handleFetchAngle() {
-      if (!this.isSerialConnected) {
-        this.$message.error('串口未连接');
-        return;
-      }
+      // [修改] 使用 sendCommand
       this.$message.info('正在发送获取角度命令 (0x2F)...');
       try {
-        // (修改) 不需要 await，响应在 processFrame 中处理
         this.sendCommand(CMD_REQ_ANGLE);
       } catch (error) {
         console.error(`发送获取角度命令失败: ${error?.message || error}`);
       }
     },
 
-    // ... (其他对话框的处理方法保持不变) ...
-    handleSetDim(form) { console.log("TODO: Implement handleSetDim", form); this.$message.info("设置标幺功能待实现"); },
-    handleDefaultDim() { console.log("TODO: Implement handleDefaultDim"); this.$message.info("恢复默认标幺功能待实现"); },
+    /**
+     * @vuese
+     * [修改] 处理标幺设置确认事件。
+     * 更新 App.vue 中的标幺状态。
+     */
+    handleSetDim(settings) {
+      console.log("Applying Per Unit Settings:", settings);
+      // 将对话框传来的字符串值转换为内部状态值
+      this.puBaseValue = settings.globalScale === '4000H' ? 16384 : 8192;
+      this.puVoltageMode = settings.voltageScaleMode === 'both_100' ? 0 : 1;
+      this.$message.success(`标幺设置已应用: 基值 ${settings.globalScale}, 电压模式 ${settings.voltageScaleMode}`);
+      // 不需要关闭对话框，v-model 会处理
+    },
+
+    /**
+     * @vuese
+     * [修改] 处理恢复默认标幺设置事件。
+     * 重置 App.vue 中的标幺状态并关闭对话框。
+     */
+    handleDefaultDim() {
+      console.log("Restoring Default Per Unit Settings");
+      this.puBaseValue = 16384; // 默认 4000H
+      this.puVoltageMode = 0;   // 默认都显示 100%
+      this.$message.info('标幺设置已恢复为默认值 (4000H, 电压均100%)');
+      this.dialogVisible.dim = false; // 关闭对话框
+    },
 
   },
 };
