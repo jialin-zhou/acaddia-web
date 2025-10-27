@@ -8,26 +8,26 @@
       <div class="header-actions">
         <el-button-group>
           <el-button
-              text
-              @click="openDialog('com')"
+            text
+            @click="openDialog('com')"
           >
             串口设置
           </el-button>
           <el-button
-              text
-              @click="openDialog('time')"
+            text
+            @click="openDialog('time')"
           >
             时间设置
           </el-button>
           <el-button
-              text
-              @click="openDialog('angle')"
+            text
+            @click="openDialog('angle')"
           >
             角度矢量
           </el-button>
           <el-button
-              text
-              @click="openDialog('dim')"
+            text
+            @click="openDialog('dim')"
           >
             标幺设置
           </el-button>
@@ -38,8 +38,8 @@
 
       <div class="connection-status">
         <el-tag
-            :type="isSerialConnected ? 'success' : 'danger'"
-            size="large"
+          :type="isSerialConnected ? 'success' : 'danger'"
+          size="large"
         >
           {{ serialStatus }}
         </el-tag>
@@ -48,13 +48,13 @@
 
     <el-container>
       <el-aside
-          width="220px"
-          class="main-aside"
+        width="220px"
+        class="main-aside"
       >
         <el-menu
-            :default-active="activeView"
-            class="main-menu"
-            @select="handleMenuSelect"
+          :default-active="activeView"
+          class="main-menu"
+          @select="handleMenuSelect"
         >
           <el-menu-item index="Main">
             主界面
@@ -83,47 +83,47 @@
       <el-main class="main-content">
         <KeepAlive>
           <component
-              :is="activeViewComponent"
-              :is-serial-connected="isSerialConnected"
-              :initial-ad-data="initialAdData"
-              :message-data="messageData"
-              :device-time-raw-data="deviceTimeRawData"
-              :device-angle-raw-data="deviceAngleRawData"
-              :current-serial-settings="currentSerialSettings"
-              :write-to-serial="writeToSerial"
-              :last-received-frame="lastReceivedFrame"
-              :send-command="sendCommand"
-              :pu-base-value="puBaseValue"
-              :pu-voltage-mode="puVoltageMode"
+            :is="activeViewComponent"
+            :is-serial-connected="isSerialConnected"
+            :initial-ad-data="initialAdData"
+            :message-data="messageData"
+            :device-time-raw-data="deviceTimeRawData"
+            :device-angle-raw-data="deviceAngleRawData"
+            :tqcs-raw-data="tqcsRawData"
+            :current-serial-settings="currentSerialSettings"
+            :write-to-serial="writeToSerial"
+            :last-received-frame="lastReceivedFrame"
+            :send-command="handleSendCommand"
+            :pu-base-value="puBaseValue"
+            :pu-voltage-mode="puVoltageMode"
           />
         </KeepAlive>
       </el-main>
     </el-container>
 
     <com-settings-dialog
-        v-model:visible="dialogVisible.com"
-        :is-connected="isSerialConnected"
-        :current-port="port"
-        @connect="handleSerialConnect"
-        @disconnect="handleSerialDisconnect"
+      v-model:visible="dialogVisible.com"
+      :is-connected="isSerialConnected"
+      :current-port="port"
+      @connect="handleSerialConnect"
+      @disconnect="handleSerialDisconnect"
     />
     <time-settings-dialog
-        v-model:visible="dialogVisible.time"
-        :device-time-raw-data="deviceTimeRawData"
-        @fetch-time="handleFetchTime"
+      v-model:visible="dialogVisible.time"
+      :device-time-raw-data="deviceTimeRawData"
+      @fetch-time="handleFetchTime"
     />
     <angle-vector-dialog
-        v-model:visible="dialogVisible.angle"
-        :device-angle-raw-data="deviceAngleRawData"
-        @fetch="handleFetchAngle"
+      v-model:visible="dialogVisible.angle"
+      :device-angle-raw-data="deviceAngleRawData"
+      @fetch="handleFetchAngle"
     />
-    <!-- [修改] 传入当前标幺设置，并监听事件 -->
     <dim-settings-dialog
-        v-model:visible="dialogVisible.dim"
-        :current-pu-base-value="puBaseValue"
-        :current-pu-voltage-mode="puVoltageMode"
-        @confirm="handleSetDim"
-        @default="handleDefaultDim"
+      v-model:visible="dialogVisible.dim"
+      :current-pu-base-value="puBaseValue"
+      :current-pu-voltage-mode="puVoltageMode"
+      @confirm="handleSetDim"
+      @default="handleDefaultDim"
     />
   </el-container>
 </template>
@@ -150,7 +150,8 @@ import DimSettingsDialog from './components/DimSettingsDialog.vue';
 import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打包和解包工具
 
 // --- 命令定义 ---
-const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 };
+// [修改] 确认 TQCS 命令 (Send 0x23, Expect 0x22)
+const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 }; // (C++: 发送35, 响应34)
 const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 };
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
 const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 }; // 获取角度 (发送 2F, 响应 30)
@@ -181,6 +182,7 @@ export default {
       deviceTimeRawData: null,
       // 设备角度原始数据 (用于 AngleVectorDialog)
       deviceAngleRawData: null,
+      tqcsRawData: null, // [新增] 存储 TQCS (0x22) 响应的 payload
       currentSerialSettings: null, // 存储当前连接的设置
 
       // --- [新增] 标幺设置状态 ---
@@ -331,6 +333,7 @@ export default {
       this.messageData = { head: null, body: [], timestamp: null };
       this.deviceTimeRawData = null;
       this.deviceAngleRawData = null;
+      this.tqcsRawData = null; // [新增] 重置 TQCS 数据
       this.commandQueue = [];
       this.isExecutingCommand = false;
       this.unpacker = new Unpacker(); // 重置解包器状态
@@ -453,6 +456,10 @@ export default {
         // 注意：将数据更新移到命令响应处理之前，确保数据总是被更新，即使是意外帧
         const responseId = frame.telegramNr;
         switch(responseId) {
+          case CMD_REQ_TQCS.expectedResponseId: // [新增] 0x22
+            console.log("Updating tqcsRawData with received payload.");
+            this.tqcsRawData = payloadArray;
+            break;
           case CMD_REQ_AD_CALC.expectedResponseId: // 0x24
             console.log("Updating initialAdData with received payload.");
             this.initialAdData = payloadArray;
