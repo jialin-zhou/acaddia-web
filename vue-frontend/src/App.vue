@@ -90,6 +90,7 @@
             :device-time-raw-data="deviceTimeRawData"
             :device-angle-raw-data="deviceAngleRawData"
             :tqcs-raw-data="tqcsRawData"
+            :ad-params-raw-data="adParamsRawData"
             :current-serial-settings="currentSerialSettings"
             :write-to-serial="writeToSerial"
             :last-received-frame="lastReceivedFrame"
@@ -151,9 +152,16 @@ import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打�
 
 // --- 命令定义 ---
 // [修改] 确认 TQCS 命令 (Send 0x23, Expect 0x22)
-const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 }; // (C++: 发送35, 响应34)
-const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 };
-const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 };
+const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 }; // (C++: TQCS 读取 35->34)
+// [新增] TQCS Apply 命令 (Send 0x22, Expect E5)
+const CMD_SET_TQCS = { stationAddr: 0, telegramNr: 0x22, expectedResponseId: 0xE5 }; // (C++: TQCS 应用 34->E5)
+
+// [修改] ACAD (AD参数) 命令 (Send 0x21, Expect 0x20)
+const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 }; // (C++: ADParams 读取 33->32)
+// [新增] ACAD (AD参数) Apply 命令 (Send 0x20, Expect E5)
+const CMD_SET_ACAD = { stationAddr: 0, telegramNr: 0x20, expectedResponseId: 0xE5 }; // (C++: ADParams 应用 32->E5)
+
+const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 }; // (C++: 主界面AD计算值 37->36)
 const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 }; // 获取角度 (发送 2F, 响应 30)
 // Message List (用于主界面 MessageList 表格)
 const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 };
@@ -175,7 +183,7 @@ export default {
       isSerialConnected: false,
       dialogVisible: { com: false, time: false, angle: false, dim: false /*, ... other dialogs */ },
       serialPortName: '', // 用于显示
-      initialAdData: null, // 存储连接时获取的 AD 数据
+      initialAdData: null, // 存储连接时获取的 AD 数据 (来自 0x24)
       // Message List (主界面)
       messageData: { head: null, body: [], timestamp: null },
       // 设备时间原始数据 (用于 TimeSettingsDialog)
@@ -183,6 +191,7 @@ export default {
       // 设备角度原始数据 (用于 AngleVectorDialog)
       deviceAngleRawData: null,
       tqcsRawData: null, // [新增] 存储 TQCS (0x22) 响应的 payload
+      adParamsRawData: null, // [新增] 存储 ADParams (0x20) 响应的 payload
       currentSerialSettings: null, // 存储当前连接的设置
 
       // --- [新增] 标幺设置状态 ---
@@ -333,7 +342,8 @@ export default {
       this.messageData = { head: null, body: [], timestamp: null };
       this.deviceTimeRawData = null;
       this.deviceAngleRawData = null;
-      this.tqcsRawData = null; // [新增] 重置 TQCS 数据
+      this.tqcsRawData = null;
+      this.adParamsRawData = null; // [新增] 重置 ADParams 数据
       this.commandQueue = [];
       this.isExecutingCommand = false;
       this.unpacker = new Unpacker(); // 重置解包器状态
@@ -424,6 +434,7 @@ export default {
         console.log("Received E5 ACK");
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
+          // [修改] 检查 E5 是否是 TQCS 或 ADParams 设置命令的预期响应
           if (currentCommand.command.expectedResponseId === 0xE5) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected E5 ACK.`);
             clearTimeout(currentCommand.timeoutTimer);
@@ -456,7 +467,11 @@ export default {
         // 注意：将数据更新移到命令响应处理之前，确保数据总是被更新，即使是意外帧
         const responseId = frame.telegramNr;
         switch(responseId) {
-          case CMD_REQ_TQCS.expectedResponseId: // [新增] 0x22
+          case CMD_REQ_ACAD.expectedResponseId: // [新增] 0x20
+            console.log("Updating adParamsRawData with received payload.");
+            this.adParamsRawData = payloadArray;
+            break;
+          case CMD_REQ_TQCS.expectedResponseId: // 0x22
             console.log("Updating tqcsRawData with received payload.");
             this.tqcsRawData = payloadArray;
             break;
@@ -527,10 +542,10 @@ export default {
       try {
         console.log("Executing initial sequence...");
         // [修改] 移除 await，让 sendCommand 顺序加入队列
-        this.sendCommand(CMD_REQ_TQCS);
-        this.sendCommand(CMD_REQ_ACAD);
-        this.sendCommand(CMD_REQ_AD_CALC);
-        this.sendCommand(CMD_REQ_ANGLE);
+        this.sendCommand(CMD_REQ_TQCS); // 0x23 -> 0x22
+        this.sendCommand(CMD_REQ_ACAD); // 0x21 -> 0x20
+        this.sendCommand(CMD_REQ_AD_CALC); // 0x25 -> 0x24
+        this.sendCommand(CMD_REQ_ANGLE); // 0x2F -> 0x30
         console.log("Initial sequence commands queued.");
         // 注意：这里不再等待所有命令完成，命令将在后台按顺序执行
       } catch (error) {
@@ -556,6 +571,10 @@ export default {
           return reject(new Error(errorMsg)); // 直接拒绝 Promise
         }
 
+        // [新增] 检查是否是 Apply (SET) 命令
+        const isApplyCommand = (commandDef.telegramNr === CMD_SET_TQCS.telegramNr ||
+            commandDef.telegramNr === CMD_SET_ACAD.telegramNr);
+
         const commandTask = {
           command: commandDef,
           payload: payload,
@@ -567,12 +586,18 @@ export default {
         // 设置超时定时器
         commandTask.timeoutTimer = setTimeout(() => {
           console.error(`Timeout waiting for response to command ${commandDef.telegramNr} (expected ${commandDef.expectedResponseId})`);
-          const index = this.commandQueue.indexOf(commandTask); // 使用 indexOf 查找
+
+          // [修改] 从队列中移除超时的任务
+          const index = this.commandQueue.indexOf(commandTask);
           if (index > -1) {
-            this.commandQueue.splice(index, 1); // 从队列中移除超时任务
+            this.commandQueue.splice(index, 1);
           }
+
           // [修改] 检查当前执行的任务是否是超时的任务
-          if (this.isExecutingCommand && this.commandQueue.length > 0 && this.commandQueue[0] === commandTask) {
+          // [BUG修复] 原代码中 `this.commandQueue[0] === commandTask` 的比较在 splice 之后可能是错的
+          // 应该比较的是 `this.isExecutingCommand` 并且 *当前任务* 是 `commandTask`
+          // 一个更简单的方法是：如果超时的任务是队首任务，才重置 isExecutingCommand
+          if (index === 0 && this.isExecutingCommand) {
             this.isExecutingCommand = false; // 如果是，则允许下一个命令执行
             this.executeNextCommand();
           } else if (!this.isExecutingCommand && this.commandQueue.length > 0) {
@@ -584,8 +609,15 @@ export default {
         }, timeout);
 
 
-        this.commandQueue.push(commandTask); // 加入队列
-        console.log(`Command ${commandDef.telegramNr} queued. Queue length: ${this.commandQueue.length}`); // 调试日志
+        // [修改] 如果是 Apply (SET) 命令，将其插入到队首
+        if (isApplyCommand) {
+          this.commandQueue.unshift(commandTask);
+          console.log(`Apply Command ${commandDef.telegramNr} inserted at front of queue. Length: ${this.commandQueue.length}`);
+        } else {
+          this.commandQueue.push(commandTask); // 普通命令加入队尾
+          console.log(`Command ${commandDef.telegramNr} queued. Queue length: ${this.commandQueue.length}`);
+        }
+
 
         // 如果当前没有命令在执行，则启动执行流程
         if (!this.isExecutingCommand) {
