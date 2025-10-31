@@ -91,6 +91,8 @@
             :device-angle-raw-data="deviceAngleRawData"
             :tqcs-raw-data="tqcsRawData"
             :ad-params-raw-data="adParamsRawData"
+            :ad-adjust-status-data="adAdjustStatusData"
+            :ad-adjust-result-data="adAdjustResultData"
             :current-serial-settings="currentSerialSettings"
             :write-to-serial="writeToSerial"
             :last-received-frame="lastReceivedFrame"
@@ -151,23 +153,27 @@ import DimSettingsDialog from './components/DimSettingsDialog.vue';
 import { pack, packAck, Unpacker } from './utils/acadia-protocol'; // 引入打包和解包工具
 
 // --- 命令定义 ---
-// [修改] 确认 TQCS 命令 (Send 0x23, Expect 0x22)
+// TQCS
 const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 }; // (C++: TQCS 读取 35->34)
-// [新增] TQCS Apply 命令 (Send 0x22, Expect E5)
 const CMD_SET_TQCS = { stationAddr: 0, telegramNr: 0x22, expectedResponseId: 0xE5 }; // (C++: TQCS 应用 34->E5)
 
-// [修改] ACAD (AD参数) 命令 (Send 0x21, Expect 0x20)
+// ACAD (AD参数)
 const CMD_REQ_ACAD = { stationAddr: 0, telegramNr: 0x21, expectedResponseId: 0x20 }; // (C++: ADParams 读取 33->32)
-// [新增] ACAD (AD参数) Apply 命令 (Send 0x20, Expect E5)
 const CMD_SET_ACAD = { stationAddr: 0, telegramNr: 0x20, expectedResponseId: 0xE5 }; // (C++: ADParams 应用 32->E5)
 
+// 主界面
 const CMD_REQ_AD_CALC = { stationAddr: 0, telegramNr: 0x25, expectedResponseId: 0x24 }; // (C++: 主界面AD计算值 37->36)
 const CMD_REQ_ANGLE = { stationAddr: 0, telegramNr: 0x2F, expectedResponseId: 0x30 }; // 获取角度 (发送 2F, 响应 30)
-// Message List (用于主界面 MessageList 表格)
 const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 };
 const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 };
-// 时间设置相关命令
+
+// 时间
 const CMD_REQ_TIME = { stationAddr: 0, telegramNr: 0x1D, expectedResponseId: 0x1C }; // 请求时间 (发送 1D, 响应 1C)
+
+// [新增] 通道校准 (ADAdjust)
+const CMD_AD_ADJUST_APPLY = { stationAddr: 0, telegramNr: 0x26, expectedResponseId: 0xE5 }; // (C++: 38) "通道校准"
+const CMD_AD_ADJUST_STATUS = { stationAddr: 0, telegramNr: 0x28, expectedResponseId: 0x29 }; // (C++: 40, 猜测) "校准状态"
+// (响应 0x27 是校准结果, 响应 0x29 是状态结果)
 
 
 export default {
@@ -190,11 +196,16 @@ export default {
       deviceTimeRawData: null,
       // 设备角度原始数据 (用于 AngleVectorDialog)
       deviceAngleRawData: null,
-      tqcsRawData: null, // [新增] 存储 TQCS (0x22) 响应的 payload
-      adParamsRawData: null, // [新增] 存储 ADParams (0x20) 响应的 payload
+      tqcsRawData: null, // 存储 TQCS (0x22) 响应的 payload
+      adParamsRawData: null, // 存储 ADParams (0x20) 响应的 payload
+
+      // [新增] 通道校准数据
+      adAdjustStatusData: null, // 存储 (0x29) 状态响应
+      adAdjustResultData: null, // 存储 (0x27) 结果响应
+
       currentSerialSettings: null, // 存储当前连接的设置
 
-      // --- [新增] 标幺设置状态 ---
+      // --- 标幺设置状态 ---
       puBaseValue: 16384, // 对应 Qt 的 DIM_public, 默认 4000H -> 16384
       puVoltageMode: 0,   // 对应 Qt 的 DIM_Line_Vot_style, 默认 0 -> 都显示100%
 
@@ -343,7 +354,11 @@ export default {
       this.deviceTimeRawData = null;
       this.deviceAngleRawData = null;
       this.tqcsRawData = null;
-      this.adParamsRawData = null; // [新增] 重置 ADParams 数据
+      this.adParamsRawData = null;
+      // [新增] 重置 ADAdjust 数据
+      this.adAdjustStatusData = null;
+      this.adAdjustResultData = null;
+
       this.commandQueue = [];
       this.isExecutingCommand = false;
       this.unpacker = new Unpacker(); // 重置解包器状态
@@ -434,7 +449,7 @@ export default {
         console.log("Received E5 ACK");
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
-          // [修改] 检查 E5 是否是 TQCS 或 ADParams 设置命令的预期响应
+          // [修改] 检查 E5 是否是 TQCS, ADParams 或 ADAdjust apply 命令的预期响应
           if (currentCommand.command.expectedResponseId === 0xE5) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected E5 ACK.`);
             clearTimeout(currentCommand.timeoutTimer);
@@ -467,7 +482,7 @@ export default {
         // 注意：将数据更新移到命令响应处理之前，确保数据总是被更新，即使是意外帧
         const responseId = frame.telegramNr;
         switch(responseId) {
-          case CMD_REQ_ACAD.expectedResponseId: // [新增] 0x20
+          case CMD_REQ_ACAD.expectedResponseId: // 0x20
             console.log("Updating adParamsRawData with received payload.");
             this.adParamsRawData = payloadArray;
             break;
@@ -503,11 +518,17 @@ export default {
             console.log("Updating deviceAngleRawData with received payload.");
             this.deviceAngleRawData = payloadArray;
             break;
-            // [添加] 处理 0x32 (通信报文响应) - 可选，取决于 MessageView 是否需要
-            // case 0x32:
-            //   console.log("Received Message Data (0x32), potentially for MessageView:", payloadArray);
-            //   // this.someOtherDataForMessageView = payloadArray; // 需要定义相应 data 属性
-            //   break;
+
+            // [新增] ADAdjust 响应
+          case 0x27: // AD Adjust Result (Unsolicited)
+            console.log("Updating adAdjustResultData with received payload (0x27).");
+            this.adAdjustResultData = payloadArray;
+            break;
+          case CMD_AD_ADJUST_STATUS.expectedResponseId: // 0x29
+            console.log("Updating adAdjustStatusData with received payload (0x29).");
+            this.adAdjustStatusData = payloadArray;
+            break;
+
           default:
             console.log(`Received data frame with unhandled ID: ${responseId}`);
         }
@@ -572,8 +593,11 @@ export default {
         }
 
         // [新增] 检查是否是 Apply (SET) 命令
-        const isApplyCommand = (commandDef.telegramNr === CMD_SET_TQCS.telegramNr ||
-            commandDef.telegramNr === CMD_SET_ACAD.telegramNr);
+        const isApplyCommand = (
+            commandDef.telegramNr === CMD_SET_TQCS.telegramNr ||
+            commandDef.telegramNr === CMD_SET_ACAD.telegramNr ||
+            commandDef.telegramNr === CMD_AD_ADJUST_APPLY.telegramNr // [新增]
+        );
 
         const commandTask = {
           command: commandDef,
