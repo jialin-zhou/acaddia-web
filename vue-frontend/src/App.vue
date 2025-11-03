@@ -91,6 +91,7 @@
             :device-angle-raw-data="deviceAngleRawData"
             :tqcs-raw-data="tqcsRawData"
             :ad-params-raw-data="adParamsRawData"
+            :tqml-raw-data="tqmlRawData"
             :ad-adjust-status-data="adAdjustStatusData"
             :ad-adjust-result-data="adAdjustResultData"
             :current-serial-settings="currentSerialSettings"
@@ -170,6 +171,12 @@ const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId:
 // 时间
 const CMD_REQ_TIME = { stationAddr: 0, telegramNr: 0x1D, expectedResponseId: 0x1C }; // 请求时间 (发送 1D, 响应 1C)
 
+// [新增] TQML (同期命令)
+// C++: Dlg_TQML::onButtonApplyClicked() -> 44 (0x2C)
+const CMD_TQML_EXEC = { stationAddr: 0, telegramNr: 0x2C, expectedResponseId: 0xE5 };
+// C++: Dlg_TQML::onButtonFetchClicked() -> 45 (0x2D), 响应 (猜测) 46 (0x2E)
+const CMD_TQML_FETCH = { stationAddr: 0, telegramNr: 0x2D, expectedResponseId: 0x2E };
+
 // [新增] 通道校准 (ADAdjust)
 const CMD_AD_ADJUST_APPLY = { stationAddr: 0, telegramNr: 0x26, expectedResponseId: 0xE5 }; // (C++: 38) "通道校准"
 const CMD_AD_ADJUST_STATUS = { stationAddr: 0, telegramNr: 0x28, expectedResponseId: 0x29 }; // (C++: 40, 猜测) "校准状态"
@@ -198,6 +205,7 @@ export default {
       deviceAngleRawData: null,
       tqcsRawData: null, // 存储 TQCS (0x22) 响应的 payload
       adParamsRawData: null, // 存储 ADParams (0x20) 响应的 payload
+      tqmlRawData: null, // [新增] 存储 TQML (0x2E) 响应的 payload
 
       // [新增] 通道校准数据
       adAdjustStatusData: null, // 存储 (0x29) 状态响应
@@ -355,6 +363,7 @@ export default {
       this.deviceAngleRawData = null;
       this.tqcsRawData = null;
       this.adParamsRawData = null;
+      this.tqmlRawData = null; // [新增]
       // [新增] 重置 ADAdjust 数据
       this.adAdjustStatusData = null;
       this.adAdjustResultData = null;
@@ -449,7 +458,7 @@ export default {
         console.log("Received E5 ACK");
         if (this.isExecutingCommand && this.commandQueue.length > 0) {
           const currentCommand = this.commandQueue[0];
-          // [修改] 检查 E5 是否是 TQCS, ADParams 或 ADAdjust apply 命令的预期响应
+          // [修改] 检查 E5 是否是 TQCS, ADParams, ADAdjust apply 或 TQML exec 命令的预期响应
           if (currentCommand.command.expectedResponseId === 0xE5) {
             console.log(`Command ${currentCommand.command.telegramNr} received expected E5 ACK.`);
             clearTimeout(currentCommand.timeoutTimer);
@@ -517,6 +526,12 @@ export default {
           case CMD_REQ_ANGLE.expectedResponseId: // 0x30
             console.log("Updating deviceAngleRawData with received payload.");
             this.deviceAngleRawData = payloadArray;
+            break;
+
+            // [新增] TQML 响应
+          case CMD_TQML_FETCH.expectedResponseId: // 0x2E
+            console.log("Updating tqmlRawData with received payload (0x2E).");
+            this.tqmlRawData = payloadArray;
             break;
 
             // [新增] ADAdjust 响应
@@ -596,7 +611,8 @@ export default {
         const isApplyCommand = (
             commandDef.telegramNr === CMD_SET_TQCS.telegramNr ||
             commandDef.telegramNr === CMD_SET_ACAD.telegramNr ||
-            commandDef.telegramNr === CMD_AD_ADJUST_APPLY.telegramNr // [新增]
+            commandDef.telegramNr === CMD_AD_ADJUST_APPLY.telegramNr || // [新增]
+            commandDef.telegramNr === CMD_TQML_EXEC.telegramNr // [新增]
         );
 
         const commandTask = {
