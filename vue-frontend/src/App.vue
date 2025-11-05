@@ -94,6 +94,7 @@
             :tqml-raw-data="tqmlRawData"
             :ad-adjust-status-data="adAdjustStatusData"
             :ad-adjust-result-data="adAdjustResultData"
+            :message-view-raw-data="messageViewRawData"
             :current-serial-settings="currentSerialSettings"
             :write-to-serial="writeToSerial"
             :last-received-frame="lastReceivedFrame"
@@ -182,6 +183,12 @@ const CMD_AD_ADJUST_APPLY = { stationAddr: 0, telegramNr: 0x26, expectedResponse
 const CMD_AD_ADJUST_STATUS = { stationAddr: 0, telegramNr: 0x28, expectedResponseId: 0x29 }; // (C++: 40, 猜测) "校准状态"
 // (响应 0x27 是校准结果, 响应 0x29 是状态结果)
 
+// [新增] 通信报文 (MessageView)
+// C++: Dlg_Message::OnBUTTONMessageFetch() -> 49 (0x31)
+// C++: Dlg_Message::Fetch_data() -> parses ValidData[] (implies data response)
+// MainView.vue comment implies 0x31 -> 0x32
+const CMD_REQ_MESSAGE = { stationAddr: 0, telegramNr: 0x31, expectedResponseId: 0x32 };
+
 
 export default {
   name: 'App',
@@ -206,6 +213,7 @@ export default {
       tqcsRawData: null, // 存储 TQCS (0x22) 响应的 payload
       adParamsRawData: null, // 存储 ADParams (0x20) 响应的 payload
       tqmlRawData: null, // [新增] 存储 TQML (0x2E) 响应的 payload
+      messageViewRawData: null, // [新增] 存储 MessageView (0x32) 响应的 payload
 
       // [新增] 通道校准数据
       adAdjustStatusData: null, // 存储 (0x29) 状态响应
@@ -364,6 +372,7 @@ export default {
       this.tqcsRawData = null;
       this.adParamsRawData = null;
       this.tqmlRawData = null; // [新增]
+      this.messageViewRawData = null; // [新增]
       // [新增] 重置 ADAdjust 数据
       this.adAdjustStatusData = null;
       this.adAdjustResultData = null;
@@ -542,6 +551,12 @@ export default {
           case CMD_AD_ADJUST_STATUS.expectedResponseId: // 0x29
             console.log("Updating adAdjustStatusData with received payload (0x29).");
             this.adAdjustStatusData = payloadArray;
+            break;
+
+            // [新增] MessageView 响应
+          case CMD_REQ_MESSAGE.expectedResponseId: // 0x32
+            console.log("Updating messageViewRawData with received payload (0x32).");
+            this.messageViewRawData = payloadArray;
             break;
 
           default:
