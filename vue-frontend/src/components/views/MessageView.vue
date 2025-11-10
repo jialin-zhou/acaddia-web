@@ -62,7 +62,7 @@
           <el-form
             :model="message.status"
             label-position="left"
-            label-width="100px"
+            label-width="120px"
             class="compact-form"
           >
             <el-form-item label="Status Word 1">
@@ -104,7 +104,7 @@
             <el-form
               :model="message.channels"
               label-position="left"
-              label-width="50px"
+              label-width="60px"
               class="compact-form channel-form"
             >
               <el-row :gutter="10">
