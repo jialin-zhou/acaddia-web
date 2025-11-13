@@ -101,6 +101,7 @@
             :send-command="handleSendCommand"
             :pu-base-value="puBaseValue"
             :pu-voltage-mode="puVoltageMode"
+            @load-params-from-file="handleLoadParamsFromFile"
           />
         </KeepAlive>
       </el-main>
@@ -822,6 +823,29 @@ export default {
       this.dialogVisible.dim = false; // 关闭对话框
     },
 
+    /**
+     * @vuese
+     * [修改] 处理 MainView.vue "打开文件" 按钮的事件。
+     * 接收从文件读取的 93 或 89 字节 payload。
+     * @param {number[]} payloadArray - 从文件读取并转换为 number[] 的 93 或 89 字节 payload。
+     */
+    handleLoadParamsFromFile(payloadArray) {
+      // [BUG 修复] 允许 93 字节 (标准) 或 89 字节 (固件)
+      if (payloadArray && (payloadArray.length === 93 || payloadArray.length === 89)) {
+        // 将此数据显示到 AdParamsView 视图中
+        // (通过更新 adParamsRawData, AdParamsView 中的 watcher 会被触发)
+        this.adParamsRawData = payloadArray;
+        this.$message.success('参数已从文件加载。');
+        // 提示用户下一步操作
+        this.$message.info('请导航至 "AD参数" 视图查看，并可点击 "下载参数" 应用到设备。');
+        // 自动跳转到 "AD参数" 视图
+        this.activeView = 'AdParams';
+      } else {
+        // [BUG 修复] 更新错误信息
+        this.$message.error(`从文件加载参数失败：文件需要 93 或 89 字节，但此文件有 ${payloadArray?.length || 0} 字节。`);
+      }
+    },
+
   },
 };
 </script>
@@ -843,3 +867,4 @@ html, body, #app, .main-container { height: 100%; margin: 0; padding: 0; backgro
 .el-container:not(.is-vertical) { height: calc(100% - 60px); /* 计算剩余高度 */}
 .el-main { height: 100%; overflow-y: auto; box-sizing: border-box; padding: 20px; /* 为视图内容添加内边距 */}
 </style>
+}

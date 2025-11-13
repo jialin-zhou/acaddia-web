@@ -397,34 +397,62 @@ export default {
           oct: 0,    // m_Primary_Current_Scaling
         },
       },
+      /**
+       * @vuese
+       * [新增] 内部标志，用于跟踪表单是否已被解析器填充。
+       * 0 = 初始状态 (默认值)
+       * 1 = 已被解析器填充
+       */
+      formState: 0,
     };
   },
   watch: {
     /**
      * @vuese
-     * 监听来自 App.vue 的 `adParamsRawData` prop。
-     * 当 App.vue 收到 0x20 响应报文并更新此 prop 时，调用解析函数 `parseDataFromBuffer`。
+     * [修改] 监听来自 App.vue 的 `adParamsRawData` prop。
+     * 1. `immediate: true` 确保在组件创建时立即运行一次。
+     * 2. `handler` 负责调用解析器。
      */
-    adParamsRawData(newData) {
-      if (newData && newData.length > 0) {
-        console.log("AdParamsView received adParamsRawData:", newData);
-        this.parseDataFromBuffer(newData);
-      }
+    adParamsRawData: {
+      handler(newData) {
+        // (在 "获取参数" 或 "打开文件" 触发 prop 变化时)
+        if (newData && newData.length > 0) {
+          console.log("AdParamsView WATCH triggered:");
+          // 这是一个“新事件”，我们显示消息
+          this.parseDataFromBuffer(newData, true);
+        }
+      },
+      immediate: true, // [关键修复 1]
     }
   },
   /**
    * @vuese
-   * [FIXED] 组件创建时，立即加载 C++ 版本中定义的默认值 (不显示消息)。
+   * [修改] 组件创建时，立即加载 C++ 版本中定义的默认值。
    */
   created() {
-    this.onDefault(false); // [FIX] 修正了此处的调用，原为 this.setDefaultValues()
+    this.onDefault(false);
+  },
+  /**
+   * @vuese
+   * [新增] <KeepAlive> 钩子。
+   * 当从缓存激活 (切换标签页回来) 时触发。
+   */
+  activated() {
+    console.log("AdParamsView ACTIVATED.");
+    if (this.adParamsRawData && this.adParamsRawData.length > 0) {
+      // 这是一个 "tab 切换"，我们同步数据，但*不*显示消息
+      this.parseDataFromBuffer(this.adParamsRawData, false);
+    } else {
+      // 如果没有数据，确保显示的是默认值
+      this.onDefault(false);
+    }
   },
   methods: {
     // --- 辅助函数 ---
 
     /**
      * @vuese
-     * 从字节数组的指定偏移量读取一个 16 位小端整数 (ushort)。
+     * 从字节数组的指定偏移量读取一个 16 位小端整数 (short)。
      * @param {number[]} buffer - 字节数组 (payload)
      * @param {number} offset - 起始偏移量
      * @returns {number} 16位整数 (short)
@@ -464,7 +492,7 @@ export default {
       this.$message.info('正在发送获取 AD 参数命令 (0x21)...');
       try {
         await this.sendCommand({ commandDef: CMD_REQ_ACAD });
-        // 成功消息将在 parseDataFromBuffer 中显示
+        // 成功消息将在 parseDataFromBuffer 中显示 (通过 watch)
       } catch (error) {
         console.error('获取 AD 参数失败:', error);
         this.$message.error(`获取参数失败: ${error?.message || error}`);
@@ -474,7 +502,7 @@ export default {
     /**
      * @vuese
      * "下载参数" 按钮点击处理。
-     * 1. 调用 `packDataToBuffer()` 将 `this.form` 序列化为 90 字节的 payload。
+     * 1. 调用 `packDataToBuffer()` 将 `this.form` 序列化为 93 字节的 payload。
      * 2. 发送 0x20 (32) 命令及 payload，等待 0xE5 响应。
      */
     async onApply() {
@@ -493,6 +521,8 @@ export default {
       try {
         await this.sendCommand({ commandDef: CMD_SET_ACAD, payload: payload });
         this.$message.success('AD 参数已下载 (0x20)');
+        // [新增] 下载成功后，将表单状态标记为 "已解析"，防止被 `activated` 覆盖
+        this.formState = 1;
       } catch (error) {
         console.error('下载 AD 参数失败:', error);
         this.$message.error(`下载失败: ${error?.message || error}`);
@@ -514,9 +544,8 @@ export default {
      * @vuese
      * [移植] "默认参数" 按钮点击处理。
      * 移植自 Dlg_AD1.cpp::onpushButton_3Ad1DefaultClicked()
-     * [FIXED] 增加 'showMessage' 参数以抑制加载时的提示
      */
-    onDefault(showMessage = true) { // [FIX] 增加了参数
+    onDefault(showMessage = true) {
       // C++: m_nAD1_DCSSx = 1 (Current)
       this.form.dcChannels.forEach(c => c.source = 1);
 
@@ -583,30 +612,47 @@ export default {
       this.form.nominal.cLine1 = 3000;
       this.form.nominal.cLine2 = 3000;
 
-      if (showMessage) { // [FIX] 增加了条件判断
+      // [新增] 将表单状态重置为 0 (默认值)
+      this.formState = 0;
+
+      if (showMessage) {
         this.$message.warning('AD 参数已在本地恢复为默认值 (未下载)');
       }
     },
 
     /**
      * @vuese
-     * [移植] 解析来自 0x20 响应的 89+ 字节 payload。
-     * 移植自 Dlg_AD1.cpp::processDeviceData()
-     * C++ 的 ValidData[4] 对应 JS 的 buffer[0] (payload 的第一个字节)。
-     * C++ 读取到 ValidData[92]，对应 buffer[88]。
+     * [修改] 解析来自 0x20 响应的 payload。
      * @param {number[]} buffer - 原始字节数组 (payload)。
+     * @param {boolean} [showMessage=true] - 是否显示成功消息。
      */
-    parseDataFromBuffer(buffer) {
-      // C++ 读取到 ValidData[92] (buffer[88])，所以长度至少为 89。
+    parseDataFromBuffer(buffer, showMessage = true) {
+      // 检查 89 字节 (解析器需要 0-88)
       if (!buffer || buffer.length < 89) {
-        console.warn("ADParams parse failed: buffer is null or too short.", buffer);
-        this.$message.error('获取参数失败：设备响应数据格式不正确');
+        // [修改] 只有在 watch/activated 首次触发时才显示错误
+        if (this.formState === 0) { // 仅在表单处于默认值时显示错误
+          console.warn(`ADParams parse failed: buffer is null or too short (need >= 89, got ${buffer?.length}).`, buffer);
+          if (showMessage) {
+            this.$message.error(`获取参数失败：设备响应数据格式不正确 (需要 >= 89 字节，收到 ${buffer?.length})`);
+          }
+        }
         return;
       }
+
       try {
+        // [关键修复 3] 检查数据是否已同步
+        // 1. 从 buffer 中读取一个值
+        const newU1a = this.readShort(buffer, 0);
+        // 2. 检查这个值是否与 form 中的值相同，并且 form 状态为 "已解析"
+        if (this.formState === 1 && this.form.acScaling.u1a.value === newU1a) {
+          console.log("AdParamsView parse skipped: form already in sync.");
+          return; // 表单已显示最新数据，无需操作
+        }
+
+        console.log("AdParamsView parsing data...");
+
         // --- AC 比例因子 ---
-        // C++: ValidData[4] -> buffer[0]
-        this.form.acScaling.u1a.value = this.readShort(buffer, 0);  // U1a @ ValidData[4]
+        this.form.acScaling.u1a.value = newU1a; // U1a @ ValidData[4]
         this.form.acScaling.u1b.value = this.readShort(buffer, 2);  // U1b @ ValidData[6]
         this.form.acScaling.u1c.value = this.readShort(buffer, 4);  // U1c @ ValidData[8]
         this.form.acScaling.i1a.value = this.readShort(buffer, 6);  // I1a @ ValidData[10]
@@ -663,7 +709,7 @@ export default {
         // --- 通道选择 ---
         this.form.channelSelect.ia.value = buffer[77]; // m_Channel_Sec1 @ ValidData[81]
         this.form.channelSelect.ib.value = buffer[78]; // m_Channel_Sec2 @ ValidData[82]
-        this.form.channelSelect.ic.value = buffer[79]; // m_Channel_Sec3 @ ValidData[83]
+        this.form.channelSelect.ic.value = buffer[79]; // m-Channel_Sec3 @ ValidData[83]
         this.form.channelSelect.ix.value = buffer[80]; // m_Channel_SecX @ ValidData[84]
 
         // --- 延迟 ---
@@ -671,106 +717,109 @@ export default {
         this.form.delay.db.value = this.readShort(buffer, 83); // m_Delay_B @ ValidData[87]
         this.form.delay.dc.value = this.readShort(buffer, 85); // m_Delay_C @ ValidData[89]
         this.form.delay.dx.value = this.readShort(buffer, 87); // m_Delay_X @ ValidData[91]
-        // ValidData[92] (buffer[88]) is read by C++ but not used for m_Delay_X. It seems dx.value should be buffer[87].
-        // C++: m_Delay_A = ui->lineEdit_48->text().toInt(); [Wrong comment, this is Delay_X]
-        // C++: DATA[87] = ... m_Delay_X & 0x00FF; DATA[88] = ... m_Delay_X >> 8;
-        // C++: TempData_UCHAR = ValidData[91]; TempData_short = ValidData[92]; ... m_Delay_X = TempData_short;
-        // OK, C++ a_Delay_X read/write is at 87/88 (JS 83/84), m_Delay_X read is at 91/92 (JS 87/88)
-        // Let's assume the WRITE (Apply) is the correct one.
-        // Re-reading C++:
-        // Apply: DATA[87]/[88] = m_Delay_X (from lineEdit_48)
-        // Fetch: m_Delay_X = ValidData[91]/[92] (buffer[87]/[88])
-        // This confirms: Delay_X is at offset 87.
-        this.form.delay.dx.value = this.readShort(buffer, 87); // m_Delay_X @ ValidData[91]
 
-        this.$message.success('AD 参数已从设备更新');
+        // [新增] 标记表单状态为 "已解析"
+        this.formState = 1;
+
+        if (showMessage) {
+          this.$message.success('AD 参数已从设备或文件更新');
+        }
 
       } catch (e) {
         console.error("解析 ADParams 数据失败:", e);
-        this.$message.error(`解析参数失败: ${e.message}`);
+        if (showMessage) {
+          this.$message.error(`解析参数失败: ${e.message}`);
+        }
       }
     },
 
     /**
      * @vuese
-     * [移植] 将 `this.form` 中的数据打包成 90 字节的 payload (Uint8Array)。
+     * [移植] 将 `this.form` 中的数据打包成 93 字节的 payload (Uint8Array)。
      * 移植自 Dlg_AD1.cpp::onpushButtonAd1ApplyClicked()
-     * @returns {Uint8Array} 90字节的 payload。
+     * @returns {Uint8Array} 93字节的 payload。
      */
     packDataToBuffer() {
-      // C++ 发送 90 字节 (索引 0-89)
-      const buffer = new Uint8Array(90);
+      // 创建 93 字节 (索引 0-92)
+      const buffer = new Uint8Array(93);
 
-      // --- AC 比例因子 ---
-      this.writeShort(buffer, 0, this.form.acScaling.u1a.value); // DATA[0]
-      this.writeShort(buffer, 2, this.form.acScaling.u1b.value); // DATA[2]
-      this.writeShort(buffer, 4, this.form.acScaling.u1c.value); // DATA[4]
-      this.writeShort(buffer, 6, this.form.acScaling.i1a.value); // DATA[6]
-      this.writeShort(buffer, 8, this.form.acScaling.i1b.value); // DATA[8]
-      this.writeShort(buffer, 10, this.form.acScaling.i1c.value); // DATA[10]
-      this.writeShort(buffer, 12, this.form.acScaling.u2a.value); // DATA[12]
-      this.writeShort(buffer, 14, this.form.acScaling.u2b.value); // DATA[14]
-      this.writeShort(buffer, 16, this.form.acScaling.u2c.value); // DATA[16]
-      this.writeShort(buffer, 18, this.form.acScaling.i2a.value); // DATA[18]
-      this.writeShort(buffer, 20, this.form.acScaling.i2b.value); // DATA[20]
-      this.writeShort(buffer, 22, this.form.acScaling.i2c.value); // DATA[22]
+      try {
+        // --- AC 比例因子 ---
+        this.writeShort(buffer, 0, this.form.acScaling.u1a.value); // DATA[0]
+        this.writeShort(buffer, 2, this.form.acScaling.u1b.value); // DATA[2]
+        this.writeShort(buffer, 4, this.form.acScaling.u1c.value); // DATA[4]
+        this.writeShort(buffer, 6, this.form.acScaling.i1a.value); // DATA[6]
+        this.writeShort(buffer, 8, this.form.acScaling.i1b.value); // DATA[8]
+        this.writeShort(buffer, 10, this.form.acScaling.i1c.value); // DATA[10]
+        this.writeShort(buffer, 12, this.form.acScaling.u2a.value); // DATA[12]
+        this.writeShort(buffer, 14, this.form.acScaling.u2b.value); // DATA[14]
+        this.writeShort(buffer, 16, this.form.acScaling.u2c.value); // DATA[16]
+        this.writeShort(buffer, 18, this.form.acScaling.i2a.value); // DATA[18]
+        this.writeShort(buffer, 20, this.form.acScaling.i2b.value); // DATA[20]
+        this.writeShort(buffer, 22, this.form.acScaling.i2c.value); // DATA[22]
 
-      // --- DC 通道 ---
-      this.writeShort(buffer, 24, this.form.dcChannels[0].v_dc); // DATA[24]
-      this.writeShort(buffer, 26, this.form.dcChannels[1].v_dc); // DATA[26]
-      this.writeShort(buffer, 28, this.form.dcChannels[2].v_dc); // DATA[28]
-      this.writeShort(buffer, 30, this.form.dcChannels[3].v_dc); // DATA[30]
-      this.writeShort(buffer, 32, this.form.dcChannels[4].v_dc); // DATA[32]
-      this.writeShort(buffer, 34, this.form.dcChannels[5].v_dc); // DATA[34]
-      this.writeShort(buffer, 36, this.form.dcChannels[6].v_dc); // DATA[36]
-      this.writeShort(buffer, 38, this.form.dcChannels[7].v_dc); // DATA[38]
+        // --- DC 通道 ---
+        this.writeShort(buffer, 24, this.form.dcChannels[0].v_dc); // DATA[24]
+        this.writeShort(buffer, 26, this.form.dcChannels[1].v_dc); // DATA[26]
+        this.writeShort(buffer, 28, this.form.dcChannels[2].v_dc); // DATA[28]
+        this.writeShort(buffer, 30, this.form.dcChannels[3].v_dc); // DATA[30]
+        this.writeShort(buffer, 32, this.form.dcChannels[4].v_dc); // DATA[32]
+        this.writeShort(buffer, 34, this.form.dcChannels[5].v_dc); // DATA[34]
+        this.writeShort(buffer, 36, this.form.dcChannels[6].v_dc); // DATA[36]
+        this.writeShort(buffer, 38, this.form.dcChannels[7].v_dc); // DATA[38]
 
-      this.writeShort(buffer, 40, this.form.dcChannels[0].c_dc); // DATA[40]
-      this.writeShort(buffer, 42, this.form.dcChannels[1].c_dc); // DATA[42]
-      this.writeShort(buffer, 44, this.form.dcChannels[2].c_dc); // DATA[44]
-      this.writeShort(buffer, 46, this.form.dcChannels[3].c_dc); // DATA[46]
-      this.writeShort(buffer, 48, this.form.dcChannels[4].c_dc); // DATA[48]
-      this.writeShort(buffer, 50, this.form.dcChannels[5].c_dc); // DATA[50]
-      this.writeShort(buffer, 52, this.form.dcChannels[6].c_dc); // DATA[52]
-      this.writeShort(buffer, 54, this.form.dcChannels[7].c_dc); // DATA[54]
+        this.writeShort(buffer, 40, this.form.dcChannels[0].c_dc); // DATA[40]
+        this.writeShort(buffer, 42, this.form.dcChannels[1].c_dc); // DATA[42]
+        this.writeShort(buffer, 44, this.form.dcChannels[2].c_dc); // DATA[44]
+        this.writeShort(buffer, 46, this.form.dcChannels[3].c_dc); // DATA[46]
+        this.writeShort(buffer, 48, this.form.dcChannels[4].c_dc); // DATA[48]
+        this.writeShort(buffer, 50, this.form.dcChannels[5].c_dc); // DATA[50]
+        this.writeShort(buffer, 52, this.form.dcChannels[6].c_dc); // DATA[52]
+        this.writeShort(buffer, 54, this.form.dcChannels[7].c_dc); // DATA[54]
 
-      // --- 额定值 ---
-      this.writeShort(buffer, 56, this.form.nominal.vLine1); // DATA[56]
-      this.writeShort(buffer, 58, this.form.nominal.vLine2); // DATA[58]
-      this.writeShort(buffer, 60, this.form.nominal.cLine1); // DATA[60]
-      this.writeShort(buffer, 62, this.form.nominal.cLine2); // DATA[62]
+        // --- 额定值 ---
+        this.writeShort(buffer, 56, this.form.nominal.vLine1); // DATA[56]
+        this.writeShort(buffer, 58, this.form.nominal.vLine2); // DATA[58]
+        this.writeShort(buffer, 60, this.form.nominal.cLine1); // DATA[60]
+        this.writeShort(buffer, 62, this.form.nominal.cLine2); // DATA[62]
 
-      // --- 高级设置 ---
-      buffer[64] = this.form.advanced.model & 0xFF;        // DATA[64] (m_Model_Sec)
-      this.writeShort(buffer, 65, this.form.advanced.adFix); // DATA[65] (m_Delay)
-      buffer[67] = (this.form.advanced.oct / 25) & 0xFF; // DATA[67] (m_Primary_Current_Scaling / 25)
-      buffer[68] = 0; // DATA[68] (m_nAD1_SecVNV) - C++ 设为 0
+        // --- 高级设置 ---
+        buffer[64] = this.form.advanced.model & 0xFF;        // DATA[64] (m_Model_Sec)
+        this.writeShort(buffer, 65, this.form.advanced.adFix); // DATA[65] (m_Delay)
+        buffer[67] = (this.form.advanced.oct / 25) & 0xFF; // DATA[67] (m_Primary_Current_Scaling / 25)
+        buffer[68] = 0; // DATA[68] (m_nAD1_SecVNV) - C++ 设为 0
 
-      // --- DC 源选择 ---
-      buffer[69] = this.form.dcChannels[0].source; // DATA[69]
-      buffer[70] = this.form.dcChannels[1].source; // DATA[70]
-      buffer[71] = this.form.dcChannels[2].source; // DATA[71]
-      buffer[72] = this.form.dcChannels[3].source; // DATA[72]
-      buffer[73] = this.form.dcChannels[4].source; // DATA[73]
-      buffer[74] = this.form.dcChannels[5].source; // DATA[74]
-      buffer[75] = this.form.dcChannels[6].source; // DATA[75]
-      buffer[76] = this.form.dcChannels[7].source; // DATA[76]
+        // --- DC 源选择 ---
+        buffer[69] = this.form.dcChannels[0].source; // DATA[69]
+        buffer[70] = this.form.dcChannels[1].source; // DATA[70]
+        buffer[71] = this.form.dcChannels[2].source; // DATA[71]
+        buffer[72] = this.form.dcChannels[3].source; // DATA[72]
+        buffer[73] = this.form.dcChannels[4].source; // DATA[73]
+        buffer[74] = this.form.dcChannels[5].source; // DATA[74]
+        buffer[75] = this.form.dcChannels[6].source; // DATA[75]
+        buffer[76] = this.form.dcChannels[7].source; // DATA[76]
 
-      // --- 通道选择 ---
-      buffer[77] = this.form.channelSelect.ia.value; // DATA[77]
-      buffer[78] = this.form.channelSelect.ib.value; // DATA[78]
-      buffer[79] = this.form.channelSelect.ic.value; // DATA[79]
-      buffer[80] = this.form.channelSelect.ix.value; // DATA[80]
+        // --- 通道选择 ---
+        buffer[77] = this.form.channelSelect.ia.value; // DATA[77]
+        buffer[78] = this.form.channelSelect.ib.value; // DATA[78]
+        buffer[79] = this.form.channelSelect.ic.value; // DATA[79]
+        buffer[80] = this.form.channelSelect.ix.value; // DATA[80]
 
-      // --- 延迟 ---
-      this.writeShort(buffer, 81, this.form.delay.da.value); // DATA[81]
-      this.writeShort(buffer, 83, this.form.delay.db.value); // DATA[83]
-      this.writeShort(buffer, 85, this.form.delay.dc.value); // DATA[85]
-      this.writeShort(buffer, 87, this.form.delay.dx.value); // DATA[87]
+        // --- 延迟 ---
+        this.writeShort(buffer, 81, this.form.delay.da.value); // DATA[81]
+        this.writeShort(buffer, 83, this.form.delay.db.value); // DATA[83]
+        this.writeShort(buffer, 85, this.form.delay.dc.value); // DATA[85]
+        this.writeShort(buffer, 87, this.form.delay.dx.value); // DATA[87]
 
-      buffer[89] = 0; // DATA[89] (bak)
+        buffer[89] = 0; // DATA[89] (bak)
 
-      return buffer;
+        // 索引 90, 91, 92 默认为 0
+        return buffer;
+      } catch (e) {
+        console.error("打包 TQCS 数据失败:", e);
+        this.$message.error(`打包参数失败: ${e.message}`);
+        return null;
+      }
     }
   },
 };
@@ -802,3 +851,4 @@ export default {
   border-top: 1px solid #e4e7ed;
 }
 </style>
+}
