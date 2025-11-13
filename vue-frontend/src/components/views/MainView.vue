@@ -1,8 +1,8 @@
 <template>
   <div class="main-view">
     <el-row
-        :gutter="20"
-        class="main-content-row"
+      :gutter="20"
+      class="main-content-row"
     >
       <el-col :span="14">
         <el-card class="box-card">
@@ -16,24 +16,24 @@
             <div class="ad-container">
               <div class="ad-controls">
                 <el-checkbox-group
-                    v-model="displayOptions"
-                    class="checkbox-group-vertical"
+                  v-model="displayOptions"
+                  class="checkbox-group-vertical"
                 >
                   <el-checkbox
-                      label="line1"
-                      size="large"
+                    label="line1"
+                    size="large"
                   >
                     Line1
                   </el-checkbox>
                   <el-checkbox
-                      label="line2"
-                      size="large"
+                    label="line2"
+                    size="large"
                   >
                     Line2
                   </el-checkbox>
                   <el-checkbox
-                      label="dc"
-                      size="large"
+                    label="dc"
+                    size="large"
                   >
                     DC
                   </el-checkbox>
@@ -42,36 +42,36 @@
 
               <div class="ad-table-wrapper">
                 <el-table
-                    v-loading="isLoading"
-                    :data="filteredAdData"
-                    border
-                    size="small"
-                    element-loading-text="正在加载数据..."
-                    :empty-text="tableEmptyText"
+                  v-loading="isLoading"
+                  :data="filteredAdData"
+                  border
+                  size="small"
+                  element-loading-text="正在加载数据..."
+                  :empty-text="tableEmptyText"
                 >
                   <el-table-column
-                      prop="channel"
-                      label="Channel"
-                      width="80"
+                    prop="channel"
+                    label="Channel"
+                    width="80"
                   />
                   <el-table-column
-                      prop="showItem"
-                      label="ShowItem"
-                      width="100"
+                    prop="showItem"
+                    label="ShowItem"
+                    width="100"
                   />
                   <el-table-column
-                      prop="second"
-                      label="Second"
-                      width="150"
+                    prop="second"
+                    label="Second"
+                    width="150"
                   />
                   <el-table-column
-                      prop="percent"
-                      label="%"
-                      width="120"
+                    prop="percent"
+                    label="%"
+                    width="120"
                   />
                   <el-table-column
-                      prop="count"
-                      label="Count"
+                    prop="count"
+                    label="Count"
                   />
                 </el-table>
               </div>
@@ -80,20 +80,20 @@
             <div class="card-actions-footer">
               <el-button-group>
                 <el-button
-                    :disabled="!isSerialConnected || isLoading"
-                    @click="onFetch"
+                  :disabled="!isSerialConnected || isLoading"
+                  @click="onFetch"
                 >
                   获取信息
                 </el-button>
                 <el-button
-                    :disabled="isLoading"
-                    @click="onSave"
+                  :disabled="isLoading || !adParamsRawData || adParamsRawData.length === 0"
+                  @click="onSave"
                 >
                   保存参数
                 </el-button>
                 <el-button
-                    :disabled="isLoading"
-                    @click="onOpenFile"
+                  :disabled="isLoading"
+                  @click="onOpenFile"
                 >
                   打开文件
                 </el-button>
@@ -114,45 +114,45 @@
           <div class="msg-card-body-wrapper">
             <div class="msg-table-wrapper">
               <el-table
-                  :data="paginatedMessages"
-                  border
-                  size="small"
-                  height="100%"
+                :data="paginatedMessages"
+                border
+                size="small"
+                height="100%"
               >
                 <el-table-column
-                    prop="msgId"
-                    label="MsgID"
-                    width="80"
+                  prop="msgId"
+                  label="MsgID"
+                  width="80"
                 />
                 <el-table-column
-                    prop="date"
-                    label="Date"
-                    width="120"
+                  prop="date"
+                  label="Date"
+                  width="120"
                 />
                 <el-table-column
-                    prop="time"
-                    label="Time"
-                    width="100"
+                  prop="time"
+                  label="Time"
+                  width="100"
                 />
                 <el-table-column
-                    prop="ms"
-                    label="ms"
-                    width="70"
+                  prop="ms"
+                  label="ms"
+                  width="70"
                 />
                 <el-table-column
-                    prop="event"
-                    label="Event"
+                  prop="event"
+                  label="Event"
                 />
               </el-table>
             </div>
 
             <div class="pagination-footer">
               <el-pagination
-                  v-model:current-page="currentPage"
-                  v-model:page-size="pageSize"
-                  layout="total, prev, pager, next"
-                  :total="processedMessages.length"
-                  @current-change="handleCurrentChange"
+                v-model:current-page="currentPage"
+                v-model:page-size="pageSize"
+                layout="total, prev, pager, next"
+                :total="processedMessages.length"
+                @current-change="handleCurrentChange"
               />
             </div>
           </div>
@@ -172,14 +172,24 @@ const CMD_REQ_MESSAGE = { stationAddr: 0, telegramNr: 0x31, expectedResponseId: 
 // const CMD_REQ_MSG_HEAD = { stationAddr: 0, telegramNr: 0x0C, expectedResponseId: 0x02 };
 // const CMD_REQ_MSG_BODY = { stationAddr: 0, telegramNr: 0x0D, expectedResponseId: 0x03 };
 
+// [新增] "下载参数" (Apply) 命令定义, 0x20 -> E5
+// 对应 Dlg_AD1.cpp::onpushButtonAd1ApplyClicked()
+// const CMD_SET_ACAD = { stationAddr: 0, telegramNr: 0x20, expectedResponseId: 0xE5 };
+
 export default {
   name: 'MainView',
   props: {
     isSerialConnected: { type: Boolean, default: false },
     currentSerialSettings: { type: Object, default: null },
-    initialAdData: { type: Array, default: null },
-    messageData: { type: Object, default: null },
+    initialAdData: { type: Array, default: null }, // 0x24
+    messageData: { type: Object, default: null }, // 0x02, 0x03
     sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") },
+    /**
+     * @vuese
+     * [新增] 从 App.vue 传入的 ADParams 原始字节数组 (来自 0x20 响应)。
+     * 用于 "保存参数" 功能。
+     */
+    adParamsRawData: { type: Array, default: null },
     /**
      * @vuese
      * [新增] 从 App.vue 传入的全局标幺基值 (16384 或 8192)。
@@ -191,6 +201,12 @@ export default {
      */
     puVoltageMode: { type: Number, default: 0 },
   },
+  /**
+   * @vuese
+   * [新增] 定义组件触发的事件。
+   * load-params-from-file: 当 "打开文件" 成功读取文件时触发，携带 payload 数组。
+   */
+  emits: ['load-params-from-file'],
   data() {
     return {
       displayOptions: ['line1', 'line2', 'dc'],
@@ -310,7 +326,7 @@ export default {
       // 按日期和时间降序排序
       messages.sort((a, b) => {
         const dateA = new Date(`${a.date}T${a.time}.${String(a.ms).padStart(3, '0')}`);
-        const dateB = new Date(`${b.date}T${b.time}.${String(b.ms).padStart(3, '0')}`);
+        const dateB = new Date(`${b.date}T${b.time}.${String(a.ms).padStart(3, '0')}`);
         return dateB - dateA; // 降序
       });
 
@@ -581,8 +597,150 @@ export default {
       };
     },
 
-    onSave() { this.$message.info('保存参数功能待实现'); },
-    onOpenFile() { this.$message.info('打开文件功能待实现'); },
+    /**
+     * @vuese
+     * [修改] "保存参数" 按钮点击处理。
+     * 将 App.vue 传入的 `adParamsRawData` (0x20 响应) 保存为 .bin 文件。
+     * 这与 C++ Dlg_ZJM::OnButtonZjmSave() 功能对应。
+     */
+    async onSave() {
+      if (!this.adParamsRawData || this.adParamsRawData.length === 0) {
+        this.$message.error('没有 AD 参数数据可保存。请先连接设备或在 "AD参数" 页面点击 "获取参数"。');
+        return;
+      }
+
+      // [修改] 验证：接受 93 字节 (标准) 或 89 字节 (设备固件)
+      if (this.adParamsRawData.length !== 93 && this.adParamsRawData.length !== 89) {
+        console.warn(`保存参数：adParamsRawData 长度为 ${this.adParamsRawData.length}，而不是预期的 93 或 89。仍将继续保存。`);
+
+        // [BUG 修复] Element Plus 的方法是 'warning' 而不是 'warn'
+        this.$message.warning(`参数数据长度 ( ${this.adParamsRawData.length} 字节) 与预期 (93 或 89 字节) 不符，但仍将保存。`);
+      }
+
+      // 1. 转换数据
+      const dataBuffer = new Uint8Array(this.adParamsRawData);
+
+      // 2. [新增] 使用 File System Access API (现代浏览器)
+      if (window.showSaveFilePicker) {
+        try {
+          const fileHandle = await window.showSaveFilePicker({
+            suggestedName: 'acaddia_ad_params.bin',
+            types: [{
+              description: 'AD Parameter File',
+              accept: { 'application/octet-stream': ['.bin'] },
+            }],
+          });
+          const writable = await fileHandle.createWritable();
+          await writable.write(dataBuffer);
+          await writable.close();
+          this.$message.success('参数已保存 (acaddia_ad_params.bin)');
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            console.error('保存文件失败:', e);
+            this.$message.error(`保存失败: ${e.message}`);
+          } else {
+            this.$message.info('保存操作已取消');
+          }
+        }
+      } else {
+        // 3. [新增] 备用下载方法 (传统浏览器)
+        try {
+          const blob = new Blob([dataBuffer], { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'acaddia_ad_params.bin';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          this.$message.success('参数文件已开始下载');
+        } catch (e) {
+          console.error('备用保存方法失败:', e);
+          this.$message.error(`保存失败: ${e.message}`);
+        }
+      }
+    },
+
+    /**
+     * @vuese
+     * [修改] "打开文件" 按钮点击处理。
+     * 读取 .bin 文件, 并将其*加载*到 App.vue 的 adParamsRawData 状态中。
+     * 这与 C++ Dlg_ZJM::OnButtonZjmOpen() 功能对应 (只加载，不发送)。
+     */
+    async onOpenFile() {
+      // [修改] 打开文件不需要连接串口，C++ 版本也不需要
+      // if (!this.isSerialConnected) {
+      //   this.$message.warn('请先连接串口才能"打开"并下载参数');
+      //   return;
+      // }
+
+      // 1. [新增] 使用 File System Access API (现代浏览器)
+      if (window.showOpenFilePicker) {
+        try {
+          const [fileHandle] = await window.showOpenFilePicker({
+            types: [{
+              description: 'AD Parameter File',
+              // [BUG 修复] 移除 '.*'
+              accept: { 'application/octet-stream': ['.bin'] },
+            }],
+            multiple: false,
+          });
+          const file = await fileHandle.getFile();
+          // 调用辅助方法
+          await this.loadAndApplyFile(file);
+        } catch (e) {
+          if (e.name !== 'AbortError') {
+            console.error('打开文件失败:', e);
+            this.$message.error(`打开失败: ${e.message}`);
+          } else {
+            this.$message.info('打开操作已取消');
+          }
+        }
+      } else {
+        // 2. [新增] 备用 <input> 方法 (传统浏览器)
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.bin,application/octet-stream';
+        input.onchange = (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            // 调用辅助方法
+            this.loadAndApplyFile(file);
+          }
+        };
+        input.click();
+      }
+    },
+
+    /**
+     * @vuese
+     * [修改] 辅助方法：读取 File 对象, 验证并*发送事件*
+     * @param {File} file - The file object to read.
+     */
+    async loadAndApplyFile(file) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const payload = new Uint8Array(arrayBuffer);
+
+        // [修改] 验证: 期望的 payload 是 93 字节 (标准) 或 89 字节 (固件)
+        if (payload.length !== 93 && payload.length !== 89) {
+          this.$message.error(`文件格式错误：期望 93 或 89 字节，但文件为 ${payload.length} 字节。`);
+          return;
+        }
+
+        // [修改] C++ 逻辑: 打开文件只是加载数据，不发送
+        // 触发事件，通知 App.vue 更新 adParamsRawData
+        this.$message.info(`文件 "${file.name}" (${payload.length} 字节) 已加载。`);
+        this.$emit('load-params-from-file', Array.from(payload)); // 转换为普通数组
+
+
+      } catch (e) {
+        console.error('读取或应用文件时出错:', e);
+        this.$message.error(`读取或应用文件失败: ${e.message}`);
+      }
+    },
+
     handleCurrentChange(val) { this.currentPage = val; },
   },
 };
