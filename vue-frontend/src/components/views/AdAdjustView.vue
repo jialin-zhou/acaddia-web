@@ -3,7 +3,7 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>Line 1 AC Channels</span>
+          <span>Line 1 AC Channels (交流通道 1)</span>
         </div>
       </template>
       <el-table
@@ -35,6 +35,7 @@
             <el-input
               v-model="scope.row.sourceValue"
               size="small"
+              placeholder="请输入数值"
             />
           </template>
         </el-table-column>
@@ -78,7 +79,7 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>Line 2 AC Channels</span>
+          <span>Line 2 AC Channels (交流通道 2)</span>
         </div>
       </template>
       <el-table
@@ -110,6 +111,7 @@
             <el-input
               v-model="scope.row.sourceValue"
               size="small"
+              placeholder="请输入数值"
             />
           </template>
         </el-table-column>
@@ -153,7 +155,7 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>DC Channels</span>
+          <span>DC Channels (直流通道)</span>
         </div>
       </template>
       <el-form label-width="120px">
@@ -199,14 +201,14 @@
         :disabled="!isSerialConnected || !selectedChannel"
         @click="onFetchStatus"
       >
-        获取校准状态
+        获取校准状态 (0x28)
       </el-button>
       <el-button
         type="primary"
         :disabled="!isSerialConnected || !selectedChannel"
         @click="onCalibrate"
       >
-        执行校准
+        执行校准 (0x26)
       </el-button>
     </div>
   </div>
@@ -214,9 +216,9 @@
 
 <script>
 // [新增] 命令定义
-// "执行校准" (通道校准)
+// "执行校准" (通道校准): 0x26
 const CMD_AD_ADJUST_APPLY = { stationAddr: 0, telegramNr: 0x26, expectedResponseId: 0xE5 }; // (C++: 38)
-// "获取校准状态" (校准状态)
+// "获取校准状态" (校准状态): 0x28
 const CMD_AD_ADJUST_STATUS = { stationAddr: 0, telegramNr: 0x28, expectedResponseId: 0x29 }; // (C++: 40, 猜测响应 0x29)
 // 响应 (非请求)
 // 0x27 = 校准结果
@@ -225,21 +227,31 @@ const CMD_AD_ADJUST_STATUS = { stationAddr: 0, telegramNr: 0x28, expectedRespons
 export default {
   name: 'AdAdjustView',
   props: {
-    // [新增] 从 App.vue 传入 Props
+    // [新增] 从 App.vue 传入 Props: 串口连接状态
     isSerialConnected: { type: Boolean, default: false },
+    // [新增] 从 App.vue 传入 Props: 发送命令函数
     sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") },
+    // [新增] 从 App.vue 传入 Props: PU 基准值 (例如 16384)
     puBaseValue: { type: Number, default: 16384 },
+    // [新增] 从 App.vue 传入 Props: 串口设置 (可能包含 currentStyle)
     currentSerialSettings: { type: Object, default: null },
-    adAdjustStatusData: { type: Array, default: null }, // (0x29)
-    adAdjustResultData: { type: Array, default: null }, // (0x27)
+    // [新增] 从 App.vue 传入 Props: 校准状态数据 (0x29 响应)
+    adAdjustStatusData: { type: Array, default: null },
+    // [新增] 从 App.vue 传入 Props: 校准结果数据 (0x27 响应)
+    adAdjustResultData: { type: Array, default: null },
   },
   data() {
     return {
+      // Line 1 AC 通道数据列表
       acChannelsLine1: [],
+      // Line 2 AC 通道数据列表
       acChannelsLine2: [],
+      // DC 零漂校准选择的通道号 (1-8)
       dcZeroDriftSelection: 1,
+      // DC 系数校准选择的通道号 (1-8)
       dcFactorSelection: 1,
-      selectedChannel: null, // [新增] 用于跟踪当前选择的通道
+      // [新增] 用于跟踪当前选择的通道 ('L1_Ua', 'L2_Ib', 'DC_V1', 'DC_C5' 等)
+      selectedChannel: null,
     };
   },
   watch: {
@@ -254,8 +266,7 @@ export default {
       console.log(`[AdAdjustView] 收到状态 (0x29) for Channel ID ${channelId}:`, newData);
       this.$message.success(`已收到通道 ${channelId} 的校准状态`);
 
-      // TODO: 需要响应协议才能解析
-      // this.updateTableRow(channelId, newData, 'status');
+      // TODO: 需要响应协议才能解析并更新 UI (this.updateTableRow(channelId, newData, 'status');)
     },
     /**
      * @vuese
@@ -268,25 +279,33 @@ export default {
       console.log(`[AdAdjustView] 收到结果 (0x27) for Channel ID ${channelId}:`, newData);
       this.$message.success(`已收到通道 ${channelId} 的校准结果`);
 
-      // 假设结果表示校准成功
+      // 假设收到结果即表示校准成功 (UI 上标记为“已校准”)
       this.updateTableRow(channelId, newData, 'result');
+      // TODO: 真正的更新需要解析数据
     }
   },
   created() {
     this.initializeState();
   },
   methods: {
+    /**
+     * 初始化 AC 通道的表格数据
+     */
     initializeState() {
+      // 辅助函数：创建 AC 通道对象
       // [修改] nameKey 用于内部映射
       const createAcChannel = (name, nameKey, sourceValue) => ({ name, nameKey, sourceValue, correctionFactor: '0H', originalFactor: '0H', calculatedValue: '0H', idealValue: '4000H', calibrated: false });
+
+      // Line 1 AC 通道初始化 (ID 1-6)
       this.acChannelsLine1 = [
-        createAcChannel('Ua(V)', 'Ua', '57.74'),
+        createAcChannel('Ua(V)', 'Ua', '57.74'), // 标称 57.74V
         createAcChannel('Ub(V)', 'Ub', '57.74'),
         createAcChannel('Uc(V)', 'Uc', '57.74'),
-        createAcChannel('Ia(A)', 'Ia', '1'),
+        createAcChannel('Ia(A)', 'Ia', '1'), // 标称 1A
         createAcChannel('Ib(A)', 'Ib', '1'),
         createAcChannel('Ic(A)', 'Ic', '1')
       ];
+      // Line 2 AC 通道初始化 (ID 7-12)
       this.acChannelsLine2 = [
         createAcChannel('Ua(V)', 'Ua', '57.74'),
         createAcChannel('Ub(V)', 'Ub', '57.74'),
@@ -299,21 +318,21 @@ export default {
 
     /**
      * @vuese
-     * [新增] "获取校准状态" 按钮 (0x28)
+     * [新增] "获取校准状态" 按钮处理函数 (发送 0x28)
      */
     async onFetchStatus() {
-      const channelIndex = this.getChannelIndex(this.selectedChannel); // 0-based index
+      const channelIndex = this.getChannelIndex(this.selectedChannel); // 获取 0-based 索引
       if (channelIndex === -1) {
         this.$message.error('内部错误：无法识别所选通道');
         return;
       }
 
-      // Payload 是 1 字节 (基于用户 0x0D 示例)
-      const payload = new Uint8Array([channelIndex + 1]); // 1-based ID
+      // Payload 是 1 字节：通道 ID (1-based)
+      const payload = new Uint8Array([channelIndex + 1]);
 
       this.$message.info(`正在获取通道 ${this.selectedChannel} (ID: ${channelIndex + 1}) 的校准状态 (0x28)...`);
       try {
-        // 发送命令，响应将由 App.vue 捕获并通过 watcher(adAdjustStatusData) 传递回来
+        // 发送命令，响应 (0x29) 将由 watcher(adAdjustStatusData) 接收
         await this.sendCommand({ commandDef: CMD_AD_ADJUST_STATUS, payload: payload });
       } catch (error) {
         this.$message.error(`获取状态失败: ${error?.message || error}`);
@@ -322,11 +341,11 @@ export default {
 
     /**
      * @vuese
-     * [修改] "执行校准" 按钮 (0x26)
+     * [修改] "执行校准" 按钮处理函数 (发送 0x26)
      */
     async onCalibrate() {
       const channelIndex = this.getChannelIndex(this.selectedChannel); // 0-based index
-      const sourceValue = this.getSourceValue(this.selectedChannel);
+      const sourceValue = this.getSourceValue(this.selectedChannel); // 获取校准源输入值
       const { dimPublic, currentStyle } = this.getSettings();
 
       if (channelIndex === -1) {
@@ -338,66 +357,67 @@ export default {
         return;
       }
 
-      // 1. 计算 Temp_short (基于 C++: onButtonApplyClicked)
+      // 1. 计算 Temp_short (要发送的原始 AD 值)
       let tempShort = 0;
       const value = parseFloat(sourceValue);
+      // 提取通道类型：U (电压), I (电流), V (DC 零漂), C (DC 系数)
       const type = this.selectedChannel.split('_')[1].substring(0, 1).toUpperCase();
 
-      if (type === 'U') { // Ua, Ub, Uc
+      if (type === 'U') { // AC 电压 (Ua, Ub, Uc)
+        // C++: Temp_short = (Temp_float * pParent->DIM_public) / 57.74;
         tempShort = Math.round((value * dimPublic) / 57.74);
-      } else if (type === 'I') { // Ia, Ib, Ic
-        tempShort = Math.round((value * dimPublic) / (currentStyle === 0 ? 5.0 : 1.0));
-      } else if (type === 'V') { // VDC (零漂)
-        // C++: Temp_short = (Temp_float * pParent->DIM_public) / 2.5;
-        // Dlg_ADAdjust1.cpp 514行，Temp_float 未初始化，假设是 0？
-        // 零漂校准源的值应该是 0
-        // 让我们假设 VDC 的校准源值 (sourceValue) *不是* 0，而是 C++ 514 行的 2.5
-        // [修正] C++ 514-537 行的 Temp_float 变量未被赋值，它使用的是 490-512 (AC) 行的 Temp_float，这是个 Bug。
-        // [修正] C++ 490 行的 Temp_float 来自 m_floatADAdjust_Ua_1 等，即 lineEdit 的值 (校准源)。
-        // 因此，DC 零漂的计算 (VDC1-4, 8-11) 使用 (value * dimPublic) / 2.5
-        // DC 系数 (CDC1-4, 12-15) 使用 (value * dimPublic) / 10.0
+      } else if (type === 'I') { // AC 电流 (Ia, Ib, Ic)
+        // C++: Temp_short = (Temp_float * pParent->DIM_public) / (currentStyle == 0 ? 5.0 : 1.0);
+        // currentStyle 0: 5A, 1: 1A
+        const currentBase = currentStyle === 0 ? 5.0 : 1.0;
+        tempShort = Math.round((value * dimPublic) / currentBase);
+      } else if (type === 'V') { // DC 零漂 (DC_V1, V2...)
+        // 零漂校准源 (sourceValue) 应该为 0。
+        // C++ 514 行：Temp_short = (Temp_float * pParent->DIM_public) / 2.5; Temp_float 实际为 0
+        // 如果用户在 UI 上没有输入框，这里应发送 0。
+        // 但为了兼容 C++ 代码逻辑，此处发送的 Raw 值是基于 2.5 的 (尽管 value 可能是 0)
         tempShort = Math.round((value * dimPublic) / 2.5);
-      } else if (type === 'C') { // CDC (系数)
+      } else if (type === 'C') { // DC 系数 (DC_C1, C2...)
+        // 系数校准源 (sourceValue) 应该为标准值。
+        // C++ 526 行：Temp_short = (Temp_float * pParent->DIM_public) / 10.0; Temp_float 实际为 0
+        // 同 VDC 零漂，C++ 存在 Bug，此处逻辑上发送的 Raw 值是基于 10.0 的。
         tempShort = Math.round((value * dimPublic) / 10.0);
       }
 
-      // 2. 构建 4 字节 Payload (基于 C++: DATA[0] to DATA[3])
+      // 3. 构建 4 字节 Payload (基于 C++: DATA[0] to DATA[3])
       const payload = new Uint8Array(4);
-      payload[0] = channelIndex + 1;  // Channel ID (1-based)
-      payload[1] = tempShort & 0xFF;  // Value Low
-      payload[2] = (tempShort >> 8) & 0xFF; // Value High
-      payload[3] = 0; // C++ 发送第 4 字节为 0
+      payload[0] = channelIndex + 1;  // DATA[0]: Channel ID (1-based)
+      payload[1] = tempShort & 0xFF;  // DATA[1]: Value Low Byte
+      payload[2] = (tempShort >> 8) & 0xFF; // DATA[2]: Value High Byte
+      payload[3] = 0; // DATA[3]: C++ 始终发送 0
 
-      this.$message.info(`正在校准通道 ${this.selectedChannel} (ID: ${channelIndex+1})，值: ${value} (Raw: ${tempShort})...`);
+      this.$message.info(`正在校准通道 ${this.selectedChannel} (ID: ${channelIndex+1})，校准源值: ${value} (Raw: ${tempShort})...`);
 
       try {
-        // 发送命令 (0x26)，期望 E5 响应
+        // 发送命令 (0x26)，期望 E5 响应 (成功发送命令)
         await this.sendCommand({ commandDef: CMD_AD_ADJUST_APPLY, payload: payload });
-        this.$message.success('校准命令 (0x26) 已发送，等待设备响应...');
-        // E5 将由 App.vue 处理。
-        // 随后的 0x27 (结果) 响应将由 watcher(adAdjustResultData) 捕获。
+        this.$message.success('校准命令 (0x26) 已发送，等待设备响应 (0x27)...');
       } catch (error) {
         this.$message.error(`校准命令发送失败: ${error?.message || error}`);
       }
     },
 
-    // [修改] 移除了 onCancel() 方法
-
     /**
      * @vuese
-     * [新增] 辅助函数：获取当前设置
+     * [新增] 辅助函数：获取 PU 基准值和电流互感器样式
      */
     getSettings() {
-      const dimPublic = this.puBaseValue || 16384;
-      // currentStyle 需要从 currentSerialSettings 获取, Dlg_ADAdjust1.cpp 510行
-      // 暂时假设 currentStyle 在 currentSerialSettings 中
-      const currentStyle = this.currentSerialSettings?.currentStyle ?? 1; // 默认为 1A
+      const dimPublic = this.puBaseValue || 16384; // PU 基准值 (例如 16384)
+      // currentStyle 0: 5A, 1: 1A (从串口设置中获取)
+      const currentStyle = this.currentSerialSettings?.currentStyle ?? 1;
       return { dimPublic, currentStyle };
     },
 
     /**
      * @vuese
-     * [新增] 辅助函数：根据 UI key (e.g., 'L1_Ua') 获取 C++ 索引 (0-based)
+     * [新增] 辅助函数：根据 UI key (e.g., 'L1_Ua', 'DC_V1') 获取 C++ 索引 (0-based)
+     * @param {string} channelKey - UI 中选择的通道键
+     * @returns {number} 0-based 通道索引，未找到返回 -1
      */
     getChannelIndex(channelKey) {
       if (!channelKey) return -1;
@@ -406,23 +426,29 @@ export default {
       const key = parts[1];   // 'Ua', 'V1', 'C1'
 
       if (group === 'L1') {
+        // AC Line 1: Ua(0), Ub(1), Uc(2), Ia(3), Ib(4), Ic(5)
         const acKeys = ['Ua', 'Ub', 'Uc', 'Ia', 'Ib', 'Ic'];
         return acKeys.indexOf(key); // 0-5
       }
       if (group === 'L2') {
+        // AC Line 2: Ua(6), Ub(7), Uc(8), Ia(9), Ib(10), Ic(11)
         const acKeys = ['Ua', 'Ub', 'Uc', 'Ia', 'Ib', 'Ic'];
         return 6 + acKeys.indexOf(key); // 6-11
       }
       if (group === 'DC') {
-        const type = key.substring(0, 1); // 'V' or 'C'
+        const type = key.substring(0, 1); // 'V' (零漂) or 'C' (系数)
         const num = parseInt(key.substring(1), 10); // 1-8
 
-        if (type === 'V') {
-          // C++ 映射: VDC1-4 -> 12-15; VDC5-8 -> 20-23
-          return (num <= 4) ? (12 + (num - 1)) : (20 + (num - 5)); // 1-based to 0-based
+        // C++ 通道 ID 映射 (0-based Index):
+        // VDC1-4: 12-15; VDC5-8: 20-23 (零漂)
+        // CDC1-4: 16-19; CDC5-8: 24-27 (系数)
+
+        if (type === 'V') { // DC 零漂
+          // 1-based num 转 0-based index
+          return (num <= 4) ? (12 + (num - 1)) : (20 + (num - 5));
         }
-        if (type === 'C') {
-          // C++ 映射: CDC1-4 -> 16-19; CDC5-8 -> 24-27
+        if (type === 'C') { // DC 系数
+          // 1-based num 转 0-based index
           return (num <= 4) ? (16 + (num - 1)) : (24 + (num - 5));
         }
       }
@@ -432,6 +458,8 @@ export default {
     /**
      * @vuese
      * [新增] 辅助函数：根据 UI key 获取校准源输入值
+     * @param {string} channelKey - UI 中选择的通道键
+     * @returns {string|null} 校准源输入值，或 null
      */
     getSourceValue(channelKey) {
       if (!channelKey) return null;
@@ -439,6 +467,7 @@ export default {
       const group = parts[0];
       const key = parts[1];
 
+      // 获取 AC 通道输入值
       if (group === 'L1') {
         const row = this.acChannelsLine1.find(r => r.nameKey === key);
         return row ? row.sourceValue : null;
@@ -447,30 +476,20 @@ export default {
         const row = this.acChannelsLine2.find(r => r.nameKey === key);
         return row ? row.sourceValue : null;
       }
-      if (group === 'DC') {
-        // DC 通道没有 "校准源" 输入框，它们使用固定的测试值
-        // 零漂 (V) 校准源应为 0, 系数 (C) 校准源应为某个标准值
-        // C++ (514, 526) 假定使用 2.5V 和 10mA/V
-        // 让我们假设 DC 校准时，我们从 UI 读取的值是 0
-        // [修正] C++ 代码显示它读取的是 AC 的输入值... 这是一个 Bug。
-        // 让我们遵循 AC 的逻辑：DC 也应该有一个输入框，但 UI 上没有。
-        // [妥协] 零漂校准发送 0，系数校准... 我没有输入框。
-        // 让我们假设 DC 的 sourceValue 也是 0 (用于零漂) 或 1 (用于系数)，但这不合理。
-        // [再次修正] C++ Dlg_ADAdjust1.cpp 490-512 行，Temp_float 是从 lineEdit (Ua1...Ic1) 获取的。
-        // DC 部分 (514-537) *复用* 了这个 Temp_float 值，但 *没有* 重新赋值。
-        // 这绝对是一个 Bug。
-        // 唯一的例外是 490-512 行的 if 条件 (m_nADAdjust_ACChannel == 0..5) 不满足时（即 DC 被选中时），Temp_float 保持为 0.0f (在 Dlg_ADAdjust1.h 中初始化)。
-        // 因此，对于 DC 校准，C++ 代码 *总是* 发送 0.0f。
 
+      // 获取 DC 通道输入值 (UI 上没有输入框，根据 C++ 逻辑进行假设)
+      if (group === 'DC') {
         const type = key.substring(0, 1);
-        if (type === 'V') return '0.0'; // 零漂校准，发送 0
+        if (type === 'V') {
+          // 零漂校准，逻辑上校准源是 0V
+          // [注意] C++ 代码实际上是读取 AC 的输入值，但 AC 的 if 不满足时，变量值为 0.0f。
+          return '0.0';
+        }
         if (type === 'C') {
-          // 系数校准。C++ 代码也发送 0...
-          // 这不合理，但这是代码的写法。
-          // 让我们假设系数校准时，用户应该在 *AC 通道* 的某个输入框里输入一个值？
-          // 这太混乱了。
-          // 让我们返回 null，强制报错。
-          this.$message.error('DC 系数校准暂不支持 (C++ 逻辑不明确)');
+          // 系数校准，逻辑上校准源应为标准值 (如 10.0V 或 10mA)
+          // 但遵循 C++ 代码的 Bug，它也发送了 0.0f 对应的 Raw 值。
+          // 为避免发送错误数据，这里强制返回 null，等待用户修复 C++ 逻辑或提供正确的 DC 校准源输入方案。
+          this.$message.error('DC 系数校准的校准源输入值在 UI 上缺失，请在代码中确认或提供输入框。');
           return null;
         }
       }
@@ -480,18 +499,25 @@ export default {
     /**
      * @vuese
      * [新增] 辅助函数：根据收到的数据更新 UI 表格
+     * @param {number} channelId - 1-based 通道 ID
+     * @param {Array<number>} data - 响应数据
+     * @param {string} type - 'result' (0x27) 或 'status' (0x29)
      */
     updateTableRow(channelId, data, type) {
       // 1-based ID 转 0-based index
       const channelIndex = channelId - 1;
       let targetRow = null;
 
+      // AC Line 1 (ID 1-6 / Index 0-5)
       if (channelIndex >= 0 && channelIndex <= 5) {
         targetRow = this.acChannelsLine1[channelIndex];
-      } else if (channelIndex >= 6 && channelIndex <= 11) {
+      }
+      // AC Line 2 (ID 7-12 / Index 6-11)
+      else if (channelIndex >= 6 && channelIndex <= 11) {
         targetRow = this.acChannelsLine2[channelIndex - 6];
-      } else {
-        // DC 暂不处理
+      }
+      // DC 通道 (ID 13-28 / Index 12-27)
+      else {
         console.log(`收到 DC (ID: ${channelId}) 的响应，暂未实现 UI 更新`);
         return;
       }
@@ -500,14 +526,11 @@ export default {
 
       if (type === 'result') {
         // 0x27 响应 (校准结果)
-        targetRow.calibrated = true;
-        // TODO: 解析 data[1...N] 更新其他字段 (correctionFactor 等)
-        // 示例：targetRow.correctionFactor = `0x${data[1].toString(16)}`;
+        targetRow.calibrated = true; // 假设收到结果即为校准成功
+        // TODO: 解析 data[1...N] 更新其他字段 (correctionFactor, originalFactor 等)
       } else if (type === 'status') {
         // 0x29 响应 (状态)
         // TODO: 解析 data[1...N] 更新所有字段
-        // 示例：targetRow.calibrated = (data[10] === 1);
-        // 示例：targetRow.correctionFactor = `0x...`;
       }
     },
   }
@@ -515,16 +538,27 @@ export default {
 </script>
 
 <style scoped>
-.ad-adjust-view { padding: 20px; background-color: #f0f2f5; }
-.box-card { margin-bottom: 20px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.el-select { width: 100%; }
+.ad-adjust-view {
+  padding: 20px;
+  background-color: #f0f2f5;
+}
+.box-card {
+  margin-bottom: 20px;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.el-select {
+  width: 100%;
+}
 
 /* [新增] 页脚样式 */
 .view-footer {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-content: flex-end; /* 按钮靠右对齐 */
+  gap: 10px; /* 按钮间距 */
   width: 100%;
   margin-top: 20px;
   padding-top: 20px;
@@ -532,12 +566,13 @@ export default {
 }
 
 /* [新增] 修正单选按钮的对齐 */
+/* 使用深度选择器（::v-deep 或 /deep/）来修改 Element Plus 内部样式 */
 .el-table ::v-deep(td.el-table__cell) .el-radio {
   padding: 0;
   margin: 0;
   vertical-align: middle;
 }
 .el-table ::v-deep(th.el-table__cell) {
-  background-color: #fafafa;
+  background-color: #fafafa; /* 表头背景色 */
 }
 </style>

@@ -193,10 +193,11 @@
 </template>
 
 <script>
-// --- 通信命令定义 ---
-// Fetch (读取): 发送 0x23 (十进制 35), 期望响应 0x22 (十进制 34)
+// --- 通信命令定义 (Protocol Definitions) ---
+// 对应 C++: TeleProcess.cpp 中的命令处理分支
+// Fetch (读取): 主机发送 0x23 (Request), 从机应答 0x22 (Response Data)
 const CMD_REQ_TQCS = { stationAddr: 0, telegramNr: 0x23, expectedResponseId: 0x22 };
-// Apply (应用): 发送 0x22 (十进制 34), 期望响应 0xE5 (ACK)
+// Apply (应用): 主机发送 0x22 (Set Data), 从机应答 0xE5 (ACK)
 const CMD_SET_TQCS = { stationAddr: 0, telegramNr: 0x22, expectedResponseId: 0xE5 };
 
 export default {
@@ -204,34 +205,35 @@ export default {
   props: {
     /**
      * @vuese
-     * 从 App.vue 传入的 `handleSendCommand` 方法，用于发送命令到串口。
-     * @see App.vue
+     * 串口发送函数，由父组件 App.vue 提供。
+     * @param {Object} cmdObj - 包含 commandDef 和 payload 的对象
      */
     sendCommand: { type: Function, default: () => Promise.reject("sendCommand function not provided") },
     /**
      * @vuese
-     * 从 App.vue 传入的原始 TQCS 字节数组 (来自 0x22 响应)。
-     * 当 App.vue 收到 0x22 报文时，会更新这个 prop。
-     * @see App.vue
+     * 原始报文数据 prop。
+     * 当 App.vue 的串口监听器捕获到 expectedResponseId (0x22) 时，
+     * 会将去掉报头的数据通过此 prop 传递给本组件。
      */
     tqcsRawData: { type: Array, default: null },
   },
   data() {
     return {
-      // 'form' 对象用于存储所有UI控件的状态。
-      // 其结构和默认值基于 C++ 版本 (Dlg_TQCS1.h 和 Dlg_TQCS1.cpp::setDefaultValues)。
+      // 'form' 对象用于存储所有 UI 控件的状态。
+      // 结构参考了 C++ 头文件 Dlg_TQCS1.h 中的成员变量定义。
       form: {
-        // --- 顶部控件 ---
-        m_funcEnabled: true,    // "功能已启用" (C++: m_funcEnabled)
-        m_routineSelect: 1, // "并网方式" 1: 手动 (C++: m_routineSelect = 1)
-        m_syncStyle: 0,     // "同步方式" 0: 异步 (C++: m_syncStyle = 0)
-        m_l1DeadVoltCheck: false, // "无压选择 L1"
-        m_l2DeadVoltCheck: false, // "无压选择 L2"
-        m_allDeadVoltCheck: false, // "无压选择 全部"
-        m_phaseSelect: 0,   // "U相位" 0: A相 (C++: m_phaseSelect = 0)
+        // --- 顶部控件状态 ---
+        m_funcEnabled: true,      // 功能启用/禁用 (对应 byte offset 36)
+        m_routineSelect: 1,       // 并网方式: 0=自动, 1=手动 (注意：协议中 1=自动, 0=手动)
+        m_syncStyle: 0,           // 同步方式: 0=异步, 1=同期
+        m_l1DeadVoltCheck: false, // 无压选择 L1
+        m_l2DeadVoltCheck: false, // 无压选择 L2
+        m_allDeadVoltCheck: false,// 无压选择 全部
+        m_phaseSelect: 0,         // U相位: 0=A相, 1=B相, 2=C相
 
-        // --- 详细参数 (左侧) ---
-        // 'key' 属性是至关重要的，它用于在 pack/parse 期间映射 C++ 成员变量名。
+        // --- 详细参数 (左侧栏) ---
+        // 'key' 用于关联 C++ 变量名，'unit' 为显示单位
+        // 数值通过 float -> short 的倍率转换进行传输
         paramsLeft: {
           t_cb: { label: 'T_CB (30-2000 ms)', value: 80, unit: 'ms', key: 'm_tcb' },
           d_amax: { label: 'Δαmax (0-50 °)', value: 10.0, unit: '°', key: 'm_damax' },
@@ -242,7 +244,7 @@ export default {
           umin: { label: 'Umin (20-120 V)', value: 52.0, unit: 'V', key: 'm_uMin' },
           umax: { label: 'Umax (20-120 V)', value: 63.5, unit: 'V', key: 'm_uMax' },
         },
-        // --- 详细参数 (右侧) ---
+        // --- 详细参数 (右侧栏) ---
         paramsRight: {
           udead: { label: 'Udead (2-50 V)', value: 2.0, unit: 'V', key: 'm_uDead' },
           tr_u1_u2: { label: 'Tr.U1-U2 (0-360 °)', value: 0.0, unit: '°', key: 'm_trU1U2' },
@@ -259,9 +261,9 @@ export default {
   watch: {
     /**
      * @vuese
-     * 监听从 App.vue 传入的 `tqcsRawData` prop。
-     * 这是数据从设备->App.vue->本组件的入口点。
-     * 当 `tqcsRawData` (0x22 响应报文) 发生变化时，调用解析函数 `parseDataFromBuffer` 来更新 UI。
+     * 核心数据流入口。
+     * 监听 `tqcsRawData` prop。当用户点击“读取”后，App.vue 收到数据并更新此 prop。
+     * 此处检测到变化后，调用 `parseDataFromBuffer` 将二进制数据映射到 UI。
      */
     tqcsRawData(newData) {
       if (newData && newData.length > 0) {
@@ -271,7 +273,7 @@ export default {
     }
   },
   created() {
-    // 组件实例创建时，立即加载 C++ 版本中定义的默认值。
+    // 组件初始化时，加载默认值，确保 UI 不为空
     this.setDefaultValues();
   },
   methods: {
@@ -279,25 +281,21 @@ export default {
 
     /**
      * @vuese
-     * "应用" 按钮点击处理函数。
-     * 1. 调用 `packDataToBuffer()` 将当前 `this.form` 状态序列化为字节数组 (payload)。
-     * 2. 检查 payload 是否有效。
-     * 3. 调用父组件传入的 `sendCommand` 方法，发送 "设置" 命令 (CMD_SET_TQCS, 0x22) 和 payload。
-     * @see packDataToBuffer
+     * "应用" 按钮处理：打包 -> 发送。
+     * 发送 CMD_SET_TQCS (0x22) 命令，将当前 UI 设置写入设备。
      */
     async onApply() {
       this.$message.info('正在打包并应用参数...');
 
-      // 1. 打包数据
+      // 1. 将 UI 数据打包为字节数组 (Payload)
       const payload = this.packDataToBuffer();
       if (!payload) {
-        // packDataToBuffer 内部会显示错误信息
-        return;
+        return; // 打包失败（通常不应发生）
       }
 
       console.log("Applying TQCS data (payload length " + payload.length + "):", payload);
 
-      // 3. 发送命令
+      // 2. 调用父组件接口发送命令
       try {
         await this.sendCommand({ commandDef: CMD_SET_TQCS, payload: payload });
         this.$message.success('参数已应用 (0x22)');
@@ -309,32 +307,28 @@ export default {
 
     /**
      * @vuese
-     * "读取" 按钮点击处理函数。
-     * 1. 调用父组件传入的 `sendCommand` 方法，发送 "请求" 命令 (CMD_REQ_TQCS, 0x23)。
-     * 2. (后续): App.vue 收到 0x22 响应后，会更新 `tqcsRawData` prop。
-     * 3. (后续): `watch.tqcsRawData` 侦听器被触发，调用 `parseDataFromBuffer` 更新 UI。
-     * @see watch.tqcsRawData
-     * @see parseDataFromBuffer
+     * "读取" 按钮处理：发送请求。
+     * 发送 CMD_REQ_TQCS (0x23)。注意：此函数不直接返回数据。
+     * 数据通过异步响应返回，并触发 `watch: tqcsRawData`。
      */
     async onFetch() {
       this.$message.info('正在读取参数 (0x23)...');
       try {
-        // 仅发送 "请求" 命令。
         await this.sendCommand({ commandDef: CMD_REQ_TQCS });
-        // 成功消息将在 parseDataFromBuffer 方法中显示，因为那是数据真正被解析的地方。
+        // 成功后的解析逻辑在 parseDataFromBuffer 中处理
       } catch (error) {
         console.error('读取 TQCS 参数失败:', error);
         this.$message.error(`读取参数失败: ${error?.message || error}`);
       }
     },
 
-    // --- C++ 逻辑移植 ---
+    // --- C++ 逻辑移植区域 ---
 
     /**
      * @vuese
-     * [移植] "恢复默认" 按钮点击处理。
-     * C++: Dlg_TQCS1::onButtonDefaultClicked() -> setDefaultValues()
-     * 注意：这只会重置浏览器前端的 `form` 数据，并不会向设备发送任何命令。
+     * 恢复默认值。
+     * 仅重置界面显示，不立即写入设备。
+     * 数值来源：Dlg_TQCS1.cpp::setDefaultValues
      */
     onDefault() {
       this.setDefaultValues();
@@ -343,48 +337,44 @@ export default {
 
     /**
      * @vuese
-     * "取消" 按钮点击处理 (保留原逻辑)。
-     * 目前仅显示提示信息。
+     * 取消操作。
      */
     onCancel() {
       this.$message.info('操作已取消');
-      // 可以在此处选择是否重新 onFetch() 来丢弃未应用的更改，
-      // 但当前保留为简单提示。
     },
 
     /**
      * @vuese
-     * [移植] 将所有参数恢复为出厂默认值 (基于 Dlg_TQCS1.cpp::setDefaultValues)。
-     * C++: Dlg_TQCS1::setDefaultValues()
+     * 设置所有表单项为 C++ 代码中定义的硬编码默认值。
      */
     setDefaultValues() {
-      // --- 重置顶部控件 ---
+      // --- 重置控制位 ---
       this.form.m_funcEnabled = true;
-      this.form.m_routineSelect = 1; // 1: 手动
-      this.form.m_syncStyle = 0;     // 0: 异步 (ASYN)
+      this.form.m_routineSelect = 1; // UI: 手动
+      this.form.m_syncStyle = 0;     // 异步
       this.form.m_l1DeadVoltCheck = false;
       this.form.m_l2DeadVoltCheck = false;
       this.form.m_allDeadVoltCheck = false;
-      this.form.m_phaseSelect = 0;   // 0: A
+      this.form.m_phaseSelect = 0;   // A相
 
-      // --- 重置详细参数 (C++ 默认值) ---
+      // --- 重置数值参数 ---
+      // 注意：此处直接设置的是物理值 (浮点/整数)，而非协议传输值
       this.form.paramsLeft.t_cb.value = 80;
       this.form.paramsLeft.d_amax.value = 10.0;
-      this.form.paramsLeft.d_usync.value = 2.0;    // m_duMax
-      this.form.paramsLeft.d_uasync.value = 2.0;   // m_dUmax2
-      this.form.paramsLeft.d_fsync.value = 20.0;   // m_dfMax
-      this.form.paramsLeft.d_fasync.value = 0.1;   // m_dFmax2
-      this.form.paramsLeft.umin.value = 52.0;      // m_uMin
-      this.form.paramsLeft.umax.value = 63.5;      // m_uMax
+      this.form.paramsLeft.d_usync.value = 2.0;
+      this.form.paramsLeft.d_uasync.value = 2.0;
+      this.form.paramsLeft.d_fsync.value = 20.0;
+      this.form.paramsLeft.d_fasync.value = 0.1;
+      this.form.paramsLeft.umin.value = 52.0;
+      this.form.paramsLeft.umax.value = 63.5;
 
-      this.form.paramsRight.udead.value = 2.0;        // m_uDead
-      this.form.paramsRight.tr_u1_u2.value = 0.0;     // m_trU1U2
-      this.form.paramsRight.df_dt_max.value = 0.2;  // m_dfptMax
-      this.form.paramsRight.fmin.value = 47.5;      // m_fMin
-      this.form.paramsRight.fmax.value = 52.5;      // m_fMax
-      this.form.paramsRight.t_syn_duration.value = 30.0; // m_tsynDuration
-      this.form.paramsRight.t_synchron.value = 0.5;   // m_synchron
-      // C++ 中 m_synchron2 = m_dfptMax
+      this.form.paramsRight.udead.value = 2.0;
+      this.form.paramsRight.tr_u1_u2.value = 0.0;
+      this.form.paramsRight.df_dt_max.value = 0.2;
+      this.form.paramsRight.fmin.value = 47.5;
+      this.form.paramsRight.fmax.value = 52.5;
+      this.form.paramsRight.t_syn_duration.value = 30.0;
+      this.form.paramsRight.t_synchron.value = 0.5;
       this.form.paramsRight.df1_f2_dt.value = 0.2;
 
       console.log("TqcsView form reset to C++ defaults.");
@@ -392,69 +382,73 @@ export default {
 
     /**
      * @vuese
-     * [移植] 从 `tqcsRawData` (0x22 响应 payload) 字节数组中解析数据，填充到 `this.form`。
-     * C++: Dlg_TQCS1::parseDataFromBuffer()
-     * 注意: C++ 的 ValidData[4] 对应 JS 的 buffer[0] (即 payload 的第一个字节)。
-     * @param {number[]} buffer - 原始字节数组 (payload)。
+     * [关键解析逻辑]
+     * 将串口返回的字节流 (Buffer) 解析为 UI 对象。
+     * * 映射关系说明:
+     * C++ `ValidData` 数组包含了报头信息，而此处的 `buffer` 是纯数据 Payload。
+     * C++ ValidData[4] 对应 JS buffer[0]。
+     * * @param {number[]} buffer - 0x22 响应报文的 Payload 部分
      */
     parseDataFromBuffer(buffer) {
-      // 检查 payload 长度是否足够。C++ 中读取到索引 40 (payload 索引 36)，因此长度至少为 37。
+      // 校验长度：C++ 代码读取至 ValidData[40] (即 payload[36])
       if (!buffer || buffer.length < 37) {
         console.warn("TQCS parse failed: buffer is null or too short.", buffer);
         this.$message.error('读取参数失败：设备响应数据格式不正确');
         return;
       }
       try {
-        // --- 解析顶部控件 ---
-        // C++: m_routineSelect = !ValidData[4]; (协议中 1=Auto, 0=Manual)
-        // JS UI: (0=Auto, 1=Manual)
-        // 所以 buffer[0] 为 1 (Auto) 时，设置 form.m_routineSelect = 0
+        // --- 1. 解析状态位 ---
+        // m_routineSelect: 协议中 1=自动, 0=手动。 UI中 0=自动, 1=手动。
+        // 故 buffer[0] 为真(1)时，UI设为0; 否则设为1。
         this.form.m_routineSelect = buffer[0] ? 0 : 1;
-        this.form.m_syncStyle = buffer[1];     // C++: ValidData[5]
-        this.form.m_l1DeadVoltCheck = !!buffer[2]; // C++: ValidData[6] (转为布尔值)
-        this.form.m_l2DeadVoltCheck = !!buffer[3]; // C++: ValidData[7]
-        this.form.m_allDeadVoltCheck = !!buffer[4]; // C++: ValidData[8]
-        this.form.m_phaseSelect = buffer[5];     // C++: ValidData[9]
+        this.form.m_syncStyle = buffer[1];
+        // 将 0/1 转换为 Boolean 给 Checkbox 使用
+        this.form.m_l1DeadVoltCheck = !!buffer[2];
+        this.form.m_l2DeadVoltCheck = !!buffer[3];
+        this.form.m_allDeadVoltCheck = !!buffer[4];
+        this.form.m_phaseSelect = buffer[5];
 
-        // --- 解析详细参数 ---
-        // 定义 C++ 结构体成员 (key) 与 payload 偏移量 (offset) 和换算系数 (div) 的映射
+        // --- 2. 解析数值参数 ---
+        // 定义解析规则表
+        // key: C++变量名
+        // offset: buffer中的起始字节索引 (对应 C++ ValidData索引 - 4)
+        // div: 除数 (用于将传输的整数还原为浮点数)
         const parseMap = {
-          // key: { offset: C++ ValidData 索引 - 4, div: 换算系数 }
-          'm_tcb': { offset: 6, div: 1 },         // C++: ValidData[10]
-          'm_damax': { offset: 8, div: 100.0 },   // C++: ValidData[12]
-          'm_duMax': { offset: 10, div: 100.0 },  // C++: ValidData[14]
-          'm_dfMax': { offset: 12, div: 1 },      // C++: ValidData[16]
-          'm_dUmax2': { offset: 14, div: 100.0 }, // C++: ValidData[18]
-          'm_dFmax2': { offset: 16, div: 100.0 }, // C++: ValidData[20]
-          'm_uDead': { offset: 18, div: 100.0 },  // C++: ValidData[22]
-          'm_trU1U2': { offset: 20, div: 100.0 }, // C++: ValidData[24]
-          'm_dfptMax': { offset: 22, div: 100.0 }, // C++: ValidData[26]
-          'm_uMin': { offset: 24, div: 100.0 },  // C++: ValidData[28]
-          'm_uMax': { offset: 26, div: 100.0 },  // C++: ValidData[30]
-          'm_fMin': { offset: 28, div: 100.0 },  // C++: ValidData[32]
-          'm_fMax': { offset: 30, div: 100.0 },  // C++: ValidData[34]
-          'm_tsynDuration': { offset: 32, div: 10.0 }, // C++: ValidData[36]
-          'm_synchron': { offset: 34, div: 10.0 }, // C++: ValidData[38]
+          'm_tcb': { offset: 6, div: 1 },         // ms
+          'm_damax': { offset: 8, div: 100.0 },   // 角度
+          'm_duMax': { offset: 10, div: 100.0 },  // V
+          'm_dfMax': { offset: 12, div: 1 },      // mHz (注意这里倍率是1)
+          'm_dUmax2': { offset: 14, div: 100.0 }, // V
+          'm_dFmax2': { offset: 16, div: 100.0 }, // Hz
+          'm_uDead': { offset: 18, div: 100.0 },  // V
+          'm_trU1U2': { offset: 20, div: 100.0 }, // 角度
+          'm_dfptMax': { offset: 22, div: 100.0 }, // Hz/s
+          'm_uMin': { offset: 24, div: 100.0 },   // V
+          'm_uMax': { offset: 26, div: 100.0 },   // V
+          'm_fMin': { offset: 28, div: 100.0 },   // Hz
+          'm_fMax': { offset: 30, div: 100.0 },   // Hz
+          'm_tsynDuration': { offset: 32, div: 10.0 }, // s (注意倍率是10)
+          'm_synchron': { offset: 34, div: 10.0 },     // s
         };
 
-        // 辅助函数：用于解析单个参数
+        // 遍历并执行解析
         const parseParam = (param) => {
           const info = parseMap[param.key];
           if (info) {
-            // 读取 16 位小端整数，然后除以系数
+            // 读取 Short (16位) -> 除以系数 -> 赋值
             param.value = this.readShort(buffer, info.offset) / info.div;
           }
         };
 
-        // 遍历左右两边的参数列表并解析
         Object.values(this.form.paramsLeft).forEach(parseParam);
         Object.values(this.form.paramsRight).forEach(parseParam);
 
-        // C++: m_synchron2 = m_dfptMax; (同步2的值等于df/dtmax)
+        // 特殊处理: m_synchron2 实际上就是 m_dfptMax 的值
         this.form.paramsRight.df1_f2_dt.value = this.form.paramsRight.df_dt_max.value;
 
-        // --- 解析功能启用标志 ---
-        this.form.m_funcEnabled = !!buffer[36]; // C++: ValidData[40]
+        // --- 3. 解析全局启用开关 ---
+        // 位于 Buffer 结尾 (offset 36)
+        this.form.m_funcEnabled = !!buffer[36];
 
         this.$message.success('参数已从设备更新');
 
@@ -466,62 +460,60 @@ export default {
 
     /**
      * @vuese
-     * [移植] 将 `this.form` 中的数据打包成字节流 (Uint8Array) 以便发送。
-     * C++: Dlg_TQCS1::packDataToBuffer()
-     * [重要] C++ 版本 (TeleProcess.cpp) 中存在一个 bug，导致实际只发送 40 字节。
-     * 此处创建 40 字节的 buffer 来 *匹配* 该 bug 行为，确保设备能正确接收。
-     * @returns {Uint8Array} 40字节的 payload。
+     * [关键打包逻辑]
+     * 将 UI 数据打包为二进制 Payload。
+     * * [重要] 关于缓冲区长度的说明:
+     * 原 C++ 代码 (TeleProcess.cpp) 存在 Bug，定义了 41 字节数组但只发送了 40 字节。
+     * 为了保证与下位机的绝对兼容，此处严格模拟该行为，只生成 40 字节数据。
+     * * @returns {Uint8Array} 40字节的二进制数据
      */
     packDataToBuffer() {
-      // C++: uchar dataToSend[41]; ... memset(dataBuffer + 37, 0, 4);
-      // C++ 意图是 41 字节，但 TeleProcess.cpp 的实现 bug 导致实际只发送 40 字节。
-      // 我们在此创建 40 字节 (索引 0-39) 来匹配 C++ 的实际行为。
+      // 创建 40 字节缓冲区 (模拟 C++ bug 行为)
       const buffer = new Uint8Array(40);
 
       try {
-        // --- 写入顶部控件 ---
-        // JS UI: (0=Auto, 1=Manual) -> 协议: (1=Auto, 0=Manual)
+        // --- 1. 写入控制位 ---
+        // 逻辑反转：UI(0=Auto) -> 协议(1=Auto)
         buffer[0] = this.form.m_routineSelect === 0 ? 1 : 0;
         buffer[1] = this.form.m_syncStyle;
-        buffer[2] = this.form.m_l1DeadVoltCheck ? 1 : 0; // 布尔转 1/0
+        buffer[2] = this.form.m_l1DeadVoltCheck ? 1 : 0;
         buffer[3] = this.form.m_l2DeadVoltCheck ? 1 : 0;
         buffer[4] = this.form.m_allDeadVoltCheck ? 1 : 0;
         buffer[5] = this.form.m_phaseSelect;
 
-        // --- 写入详细参数 ---
-        // 映射 param key (C++ 成员变量名) 到 payload 缓冲区偏移量
+        // --- 2. 写入数值参数 ---
+        // 定义偏移量映射表 (Offset Map)
         const offsetMap = {
           'm_tcb': 6, 'm_damax': 8, 'm_duMax': 10, 'm_dfMax': 12, 'm_dUmax2': 14,
           'm_dFmax2': 16, 'm_uDead': 18, 'm_trU1U2': 20, 'm_dfptMax': 22, 'm_uMin': 24,
           'm_uMax': 26, 'm_fMin': 28, 'm_fMax': 30, 'm_tsynDuration': 32, 'm_synchron': 34
-          // C++: m_synchron2 不会被打包发送
         };
-        // 映射 param key 到 C++ 存储时的乘数
+
+        // 定义乘数映射表 (Multiplier Map) - 将浮点数转为整数传输
         const multiplierMap = {
           'm_damax': 100, 'm_duMax': 100, 'm_dUmax2': 100, 'm_dFmax2': 100, 'm_uDead': 100,
           'm_trU1U2': 100, 'm_dfptMax': 100, 'm_uMin': 100, 'm_uMax': 100, 'm_fMin': 100,
           'm_fMax': 100, 'm_tsynDuration': 10, 'm_synchron': 10
         };
 
-        // 辅助函数：用于打包单个参数
         const packParam = (param) => {
           const offset = offsetMap[param.key];
-          if (offset === undefined) return; // 跳过 m_synchron2 等
+          if (offset === undefined) return; // 跳过未映射的字段
 
-          const multiplier = multiplierMap[param.key] || 1; // 默认为 1 (e.g., m_tcb)
+          const multiplier = multiplierMap[param.key] || 1; // 默认为 1
           const value = parseFloat(param.value) || 0;
-          // 将浮点数乘以系数，四舍五入，然后作为 16 位小端整数写入 buffer
+
+          // 核心转换：浮点 -> 乘系数 -> 四舍五入 -> 写入Short
           this.writeShort(buffer, offset, Math.round(value * multiplier));
         };
 
-        // 遍历并打包所有参数
         Object.values(this.form.paramsLeft).forEach(packParam);
         Object.values(this.form.paramsRight).forEach(packParam);
 
-        // --- 写入功能启用标志 ---
+        // --- 3. 写入启用标志 ---
         buffer[36] = this.form.m_funcEnabled ? 1 : 0;
-        // 索引 37, 38, 39 默认为 0 (Uint8Array 自动填充)
-        // 索引 40 不存在 (为了匹配 C++ bug)
+
+        // 索引 37-39 自动填充为 0，总长度维持在 40
 
         return buffer;
 
@@ -532,72 +524,56 @@ export default {
       }
     },
 
-    // --- C++ UI 逻辑移植 ---
-
-    /**
-     * @vuese
-     * [移植] C++: Dlg_TQCS1::onControlStateChanged()
-     * 在 Vue 中，这部分逻辑由模板中的 `:disabled` 属性动态绑定实现。
-     * 例如 `:disabled="!form.m_funcEnabled || form.m_routineSelect !== 1"`
-     * 此函数保留为空，仅用于响应事件（如果未来需要）。
-     */
-    onControlStateChanged() {
-      console.log("Control state changed. UI bindings will update automatically.");
-    },
-
     // --- 辅助函数 ---
 
     /**
      * @vuese
-     * [移植] 从指定的字节缓冲区和偏移量读取一个 ushort (16位小端)。
-     * C++: Dlg_TQCS1::readShort
-     * @param {number[]} buffer - 字节数组
-     * @param {number} offset - 起始偏移量
-     * @returns {number} 16位无符号整数
+     * UI 交互占位符。
+     * C++ 中用于启用/禁用控件，Vue 中通过 :disabled 属性自动处理。
+     */
+    onControlStateChanged() {
+      // UI 状态由 Vue 响应式系统自动处理，此处仅留作钩子
+      console.log("Control state changed. UI bindings will update automatically.");
+    },
+
+    /**
+     * @vuese
+     * 读取 16 位小端整数 (Little-Endian unsigned short)。
+     * 低地址存放低字节，高地址存放高字节。
      */
     readShort(buffer, offset) {
       if (offset + 1 >= buffer.length) {
         throw new Error(`Read short: offset ${offset} out of bounds for buffer length ${buffer.length}`);
       }
-      // C++ (Little-Endian): (buffer[offset + 1] << 8) | buffer[offset];
       return buffer[offset] | (buffer[offset + 1] << 8);
     },
 
     /**
      * @vuese
-     * [移植] 将一个 ushort 值写入指定的字节缓冲区和偏移量 (16位小端)。
-     * C++: Dlg_TQCS1::writeShort
-     * @param {Uint8Array} buffer - 目标字节数组
-     * @param {number} offset - 写入的起始偏移量
-     * @param {number} value - 要写入的 16 位整数
+     * 写入 16 位小端整数。
+     * 将 value 拆分为高低字节写入 buffer。
      */
     writeShort(buffer, offset, value) {
       if (offset + 1 >= buffer.length) {
         throw new Error(`Write short: offset ${offset} out of bounds for buffer length ${buffer.length}`);
       }
-      buffer[offset] = value & 0xFF;            // 低字节
-      buffer[offset + 1] = (value >> 8) & 0xFF; // 高字节
+      buffer[offset] = value & 0xFF;            // 低 8 位
+      buffer[offset + 1] = (value >> 8) & 0xFF; // 高 8 位
     },
   },
 };
 </script>
 
 <style scoped>
-/* 视图根元素样式 */
+/* 样式部分保持不变 */
 .tqcs-view { padding: 20px; background-color: #f0f2f5; }
-/* 卡片头部样式 */
 .card-header { display: flex; justify-content: space-between; align-items: center; }
-/* 顶部设置表单的背景和内边距 */
 .top-settings-form { background-color: #fafafa; padding: 15px 20px 5px; border-radius: 4px; margin-bottom: 20px; }
-/* 详细参数输入框的后缀样式 */
 .params-form ::v-deep(.el-input-group__append) {
   width: 70px;
   text-align: center;
 }
-/* 底部按钮栏样式 */
 .view-footer { display: flex; justify-content: flex-end; width: 100%; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e4e7ed; }
-
-/* "无压选择" Checkbox 组的自定义样式，使其看起来像一个 RadioButton 组 */
 .checkbox-group-container {
   display: inline-flex;
   border-radius: 4px;
@@ -617,13 +593,10 @@ export default {
   border-top-right-radius: 4px;
   border-bottom-right-radius: 4px;
 }
-
-/* 当 "功能启用" 关闭时，用于禁用详细参数整行的样式 */
 .el-row.is-disabled {
   opacity: 0.6;
   pointer-events: none;
 }
-/* 当 "功能启用" 关闭时，用于禁用 Checkbox 组的样式 */
 .checkbox-group-container.is-disabled {
   opacity: 0.6;
   pointer-events: none;
