@@ -4,7 +4,7 @@
       :gutter="20"
       class="main-content-row"
     >
-      <el-col :span="14">
+      <el-col :span="24">
         <el-card class="box-card">
           <template #header>
             <div class="card-header">
@@ -48,30 +48,32 @@
                   size="small"
                   element-loading-text="正在加载数据..."
                   :empty-text="tableEmptyText"
+                  style="width: 100%"
                 >
                   <el-table-column
                     prop="channel"
                     label="Channel"
-                    width="80"
+                    align="center"
                   />
                   <el-table-column
                     prop="showItem"
                     label="ShowItem"
-                    width="100"
+                    align="center"
                   />
                   <el-table-column
                     prop="second"
                     label="Second"
-                    width="150"
+                    align="center"
                   />
                   <el-table-column
                     prop="percent"
                     label="%"
-                    width="120"
+                    align="center"
                   />
                   <el-table-column
                     prop="count"
                     label="Count"
+                    align="center"
                   />
                 </el-table>
               </div>
@@ -103,61 +105,61 @@
         </el-card>
       </el-col>
 
-      <el-col :span="10">
-        <el-card class="box-card">
-          <template #header>
-            <div class="card-header">
-              <span>Message List</span>
-            </div>
-          </template>
+      <!--      <el-col :span="10">-->
+      <!--        <el-card class="box-card">-->
+      <!--          <template #header>-->
+      <!--            <div class="card-header">-->
+      <!--              <span>Message List</span>-->
+      <!--            </div>-->
+      <!--          </template>-->
 
-          <div class="msg-card-body-wrapper">
-            <div class="msg-table-wrapper">
-              <el-table
-                :data="paginatedMessages"
-                border
-                size="small"
-                height="100%"
-              >
-                <el-table-column
-                  prop="msgId"
-                  label="MsgID"
-                  width="80"
-                />
-                <el-table-column
-                  prop="date"
-                  label="Date"
-                  width="120"
-                />
-                <el-table-column
-                  prop="time"
-                  label="Time"
-                  width="100"
-                />
-                <el-table-column
-                  prop="ms"
-                  label="ms"
-                  width="70"
-                />
-                <el-table-column
-                  prop="event"
-                  label="Event"
-                />
-              </el-table>
-            </div>
+      <!--          <div class="msg-card-body-wrapper">-->
+      <!--            <div class="msg-table-wrapper">-->
+      <!--              <el-table-->
+      <!--                :data="paginatedMessages"-->
+      <!--                border-->
+      <!--                size="small"-->
+      <!--                height="100%"-->
+      <!--              >-->
+      <!--                <el-table-column-->
+      <!--                  prop="msgId"-->
+      <!--                  label="MsgID"-->
+      <!--                  width="80"-->
+      <!--                />-->
+      <!--                <el-table-column-->
+      <!--                  prop="date"-->
+      <!--                  label="Date"-->
+      <!--                  width="120"-->
+      <!--                />-->
+      <!--                <el-table-column-->
+      <!--                  prop="time"-->
+      <!--                  label="Time"-->
+      <!--                  width="100"-->
+      <!--                />-->
+      <!--                <el-table-column-->
+      <!--                  prop="ms"-->
+      <!--                  label="ms"-->
+      <!--                  width="70"-->
+      <!--                />-->
+      <!--                <el-table-column-->
+      <!--                  prop="event"-->
+      <!--                  label="Event"-->
+      <!--                />-->
+      <!--              </el-table>-->
+      <!--            </div>-->
 
-            <div class="pagination-footer">
-              <el-pagination
-                v-model:current-page="currentPage"
-                v-model:page-size="pageSize"
-                layout="total, prev, pager, next"
-                :total="processedMessages.length"
-                @current-change="handleCurrentChange"
-              />
-            </div>
-          </div>
-        </el-card>
-      </el-col>
+      <!--            <div class="pagination-footer">-->
+      <!--              <el-pagination-->
+      <!--                v-model:current-page="currentPage"-->
+      <!--                v-model:page-size="pageSize"-->
+      <!--                layout="total, prev, pager, next"-->
+      <!--                :total="processedMessages.length"-->
+      <!--                @current-change="handleCurrentChange"-->
+      <!--              />-->
+      <!--            </div>-->
+      <!--          </div>-->
+      <!--        </el-card>-->
+      <!--      </el-col>-->
     </el-row>
   </div>
 </template>
