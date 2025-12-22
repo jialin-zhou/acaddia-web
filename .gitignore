@@ -1,43 +1,35 @@
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-.kotlin
+# Dependency directories
+node_modules/
+jspm_packages/
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-*.iws
-*.iml
-*.ipr
+# Build artifacts
+dist/
 
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+# Environment variables
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-### VS Code ###
+# Editor/IDE folders
+.idea/
 .vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-### Mac OS ###
+# OS metadata
 .DS_Store
-/vue-frontend/node_modules/
-#/vue-frontend/public/prepre-acaddia/
-#/vue-frontend/public/pre-acaddia/
+Thumbs.db
 
+# Optional: If you still have pom.xml but don't want to track it
+# pom.xml
